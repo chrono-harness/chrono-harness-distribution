@@ -333,6 +333,7 @@ fn bootstrap_rejects_corrupt_installer_and_propagates_real_exit() {
 fn pack_and_assemble_bind_real_source_and_declared_members() {
     let repo = tempdir().unwrap();
     let out = tempdir().unwrap();
+    let assets = tempdir().unwrap();
     let tools = tempdir().unwrap();
     let mock = tools.path().join("git");
     fs::copy(env!("CARGO_BIN_EXE_chrono-test-git-model"), &mock).unwrap();
@@ -344,14 +345,14 @@ fn pack_and_assemble_bind_real_source_and_declared_members() {
             .unwrap()
     };
     fs::write(repo.path().join("source"), "real input").unwrap();
-    fs::create_dir(repo.path().join("built")).unwrap();
+    fs::create_dir(assets.path().join("built")).unwrap();
     fs::write(
-        repo.path().join("built/installer"),
+        assets.path().join("built/installer"),
         include_bytes!("fixtures/installer-ok.sh"),
     )
     .unwrap();
     fs::set_permissions(
-        repo.path().join("built/installer"),
+        assets.path().join("built/installer"),
         fs::Permissions::from_mode(0o755),
     )
     .unwrap();
@@ -364,6 +365,8 @@ fn pack_and_assemble_bind_real_source_and_declared_members() {
         "pack".into(),
         "--root".into(),
         repo.path().display().to_string(),
+        "--asset-root".into(),
+        assets.path().display().to_string(),
         "--plan".into(),
         repo.path().join("plan.json").display().to_string(),
         "--output".into(),

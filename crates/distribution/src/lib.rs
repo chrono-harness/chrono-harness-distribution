@@ -232,7 +232,7 @@ fn git(root: &Path, args: &[&str]) -> Result<String> {
 }
 /// Package only the plan's already built files from a clean, fixed source tree.
 /// Build provenance/SDK closure is a separate obligation; SHA-256 is byte identity.
-fn pack(root: &Path, plan: &Path, out: &Path) -> Result<Value> {
+fn pack(root: &Path, assets: &Path, plan: &Path, out: &Path) -> Result<Value> {
     let plan: Plan = read(plan)?;
     if plan.schema != "chrono-release-plan/v1" || plan.assets.is_empty() {
         return Err("invalid release plan".into());
@@ -253,7 +253,7 @@ fn pack(root: &Path, plan: &Path, out: &Path) -> Result<Value> {
     let mut tools = BTreeMap::new();
     for (n, path) in plan.assets {
         name(&n)?;
-        let from = no_symlink_parents(root, &path)?;
+        let from = no_symlink_parents(assets, &path)?;
         if fs::metadata(&from)
             .map_err(|e| e.to_string())?
             .permissions()
@@ -650,7 +650,7 @@ pub fn run(args: &[String]) -> Result<Value> {
         }
     }
     let allowed: &[&str] = match command.as_str() {
-        "pack" => &["--root", "--plan", "--output"],
+        "pack" => &["--root", "--asset-root", "--plan", "--output"],
         "assemble" => &[
             "--input",
             "--output",
@@ -704,6 +704,12 @@ pub fn run(args: &[String]) -> Result<Value> {
     match command.as_str() {
         "pack" => pack(
             Path::new(get("--root")?),
+            Path::new(
+                values
+                    .get("--asset-root")
+                    .map(|v| v[0].as_str())
+                    .unwrap_or(get("--root")?),
+            ),
             Path::new(get("--plan")?),
             Path::new(get("--output")?),
         ),
