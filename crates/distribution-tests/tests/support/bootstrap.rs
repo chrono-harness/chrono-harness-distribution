@@ -2,19 +2,21 @@
 //! The template digest is independent fixture input: a changed shell body must
 //! explicitly revise this model and its expectations. No Shell is interpreted.
 #![allow(unexpected_cfgs)]
-#[cfg(verus_keep_ghost)]
-use super::identifiers;
 #[cfg(not(verus_keep_ghost))]
-use chrono_harness::{verified_identifiers as identifiers, verus};
+use verus_builtin_macros::verus;
 #[cfg(verus_keep_ghost)]
 use vstd::prelude::*;
 verus! {
 pub fn known_mode(mode:&str) -> (known:bool)
     ensures known == (mode@ == "install"@ || mode@ == "adopt"@),
-{ identifiers::equal_text(mode,"install") || identifiers::equal_text(mode,"adopt") }
+{
+    let mode = mode.to_owned();
+    mode == "install".to_owned() || mode == "adopt".to_owned()
+}
 }
 #[cfg(not(any(verus_keep_ghost, test)))]
 mod runtime {
+    use sha2::{Digest, Sha256};
     use std::{
         collections::BTreeMap,
         env, fs,
@@ -37,7 +39,7 @@ mod runtime {
         let domain: serde_json::Value =
             serde_json::from_str(include_str!("../fixtures/bootstrap-domain.json")).unwrap();
         if domain["template_sha256"].as_str()
-            != Some(chrono_harness::sha256(TEMPLATE.as_bytes()).as_str())
+            != Some(format!("{:x}", Sha256::digest(TEMPLATE.as_bytes())).as_str())
         {
             return Err("unregistered launcher template".into());
         }
@@ -139,7 +141,7 @@ mod runtime {
     }
     fn verify(path: &Path, digest: &str, size: u64) -> Result<(), String> {
         let bytes = fs::read(path).map_err(|_| format!("missing file: {}", path.display()))?;
-        if bytes.len() as u64 != size || chrono_harness::sha256(&bytes) != digest {
+        if bytes.len() as u64 != size || format!("{:x}", Sha256::digest(&bytes)) != digest {
             return Err(format!("integrity mismatch: {}", path.display()));
         }
         Ok(())

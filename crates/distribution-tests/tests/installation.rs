@@ -1,6 +1,6 @@
 use chrono_distribution::{Asset, Release, Source, adopt, install, platform, run};
-use chrono_harness::file_identity;
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
     fs,
@@ -9,6 +9,11 @@ use std::{
     process::Command,
 };
 use tempfile::{TempDir, tempdir};
+
+fn file_identity(path: &Path) -> std::io::Result<(String, u64)> {
+    let bytes = fs::read(path)?;
+    Ok((format!("{:x}", Sha256::digest(&bytes)), bytes.len() as u64))
+}
 
 // The interpreter mock accepts only the fixed generated-template domain.
 // Its native effects retain the original command/stream/status assertions;
@@ -434,6 +439,50 @@ fn rejects_duplicate_json_members_unknown_cli_and_lock_contention() {
     let bytes = fs::read_to_string(&p).unwrap();
     fs::write(&p, bytes.replacen('{', "{\"version\":\"v9\",", 1)).unwrap();
     assert!(install(f.host.path()).is_err());
+}
+
+#[test]
+fn rejects_duplicate_release_tool_before_adopting_the_lock() {
+    let f = Fixture::new();
+    let manifest = fs::read_to_string(&f.manifest).unwrap();
+    let release: Release = serde_json::from_str(&manifest).unwrap();
+    let asset = serde_json::to_string(&release.platforms[&platform()]["alpha"]).unwrap();
+    let key = "\"alpha\": ";
+    let duplicate = manifest.replacen(key, &format!("{key}{asset},{key}"), 1);
+    assert_ne!(duplicate, manifest);
+    fs::write(&f.manifest, duplicate).unwrap();
+    let error = adopt(
+        f.host.path(),
+        &f.manifest,
+        Source::Directory {
+            path: f.release.path().into(),
+        },
+        &["alpha".to_owned()],
+        false,
+    )
+    .unwrap_err();
+    assert!(error.contains("duplicate"), "{error}");
+    assert!(
+        !f.host
+            .path()
+            .join(".chrono-harness/distribution.json")
+            .exists()
+    );
+}
+
+#[test]
+fn invalid_utf8_argument_reports_usage_without_running_a_command() {
+    use std::os::unix::ffi::OsStrExt;
+    let output = Command::new(env!("CARGO_BIN_EXE_chrono-distribution-test-cli"))
+        .arg(std::ffi::OsStr::from_bytes(&[0xff]))
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    assert_eq!(
+        std::str::from_utf8(&output.stderr).unwrap(),
+        "E_USAGE: argument at argv index 1 must be valid UTF-8\n"
+    );
 }
 
 #[test]

@@ -1,12 +1,13 @@
 //! Distribution knows explicit release members and destinations, never host projects.
-use chrono_harness::{file_identity, json, no_symlink_parents, relative_path};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json as value};
+use serde_with::{MapPreventDuplicates, serde_as};
+use sha2::{Digest, Sha256};
 use std::os::unix::fs::PermissionsExt;
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs,
-    path::{Path, PathBuf},
+    fs, io,
+    path::{Component, Path, PathBuf},
     process::Command,
 };
 
@@ -22,6 +23,7 @@ pub struct Asset {
     pub sha256: String,
     pub size: u64,
 }
+#[serde_as]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Release {
@@ -29,6 +31,7 @@ pub struct Release {
     pub version: String,
     pub source_commit: String,
     pub source_tree: String,
+    #[serde_as(deserialize_as = "MapPreventDuplicates<_, MapPreventDuplicates<_, _>>")]
     pub platforms: BTreeMap<String, BTreeMap<String, Asset>>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -37,6 +40,7 @@ pub enum Source {
     Https { base_url: String, curl: String },
     Directory { path: PathBuf },
 }
+#[serde_as]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Lock {
@@ -44,20 +48,24 @@ pub struct Lock {
     pub version: String,
     pub source: Source,
     pub manifest: Asset,
+    #[serde_as(deserialize_as = "MapPreventDuplicates<_, _>")]
     pub installers: BTreeMap<String, Asset>,
+    #[serde_as(deserialize_as = "MapPreventDuplicates<_, _>")]
     pub install: BTreeMap<String, String>,
 }
+#[serde_as]
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Plan {
     schema: String,
     version: String,
+    #[serde_as(deserialize_as = "MapPreventDuplicates<_, _>")]
     assets: BTreeMap<String, String>,
 }
 
 fn read<T: DeserializeOwned>(path: &Path) -> Result<T> {
-    serde_json::from_value(json(&fs::read(path).map_err(|e| e.to_string())?)?)
-        .map_err(|e| e.to_string())
+    let file = fs::File::open(path).map_err(|error| error.to_string())?;
+    serde_json::from_reader(io::BufReader::new(file)).map_err(|error| error.to_string())
 }
 fn write<T: Serialize>(path: &Path, data: &T) -> Result<()> {
     let mut bytes = serde_json::to_vec_pretty(data).map_err(|e| e.to_string())?;
@@ -88,6 +96,44 @@ fn asset(a: &Asset) -> Result<()> {
     }
     Ok(())
 }
+fn file_identity(path: &Path) -> Result<(String, u64)> {
+    if !fs::metadata(path)
+        .map_err(|e| format!("{}: {e}", path.display()))?
+        .is_file()
+    {
+        return Err(format!("not a regular input file: {}", path.display()));
+    }
+    let mut file = fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    if !file.metadata().map_err(|e| e.to_string())?.is_file() {
+        return Err(format!("not a regular input file: {}", path.display()));
+    }
+    let mut digest = Sha256::new();
+    let size = io::copy(&mut file, &mut digest).map_err(|e| e.to_string())?;
+    Ok((format!("{:x}", digest.finalize()), size))
+}
+
+fn member_path(root: &Path, member: &str) -> Result<PathBuf> {
+    if member.is_empty() || member.contains(['\0', '\r', '\n', '\\']) {
+        return Err(format!("invalid relative path: {member:?}"));
+    }
+    let mut path = root.to_path_buf();
+    for component in Path::new(member).components() {
+        let Component::Normal(part) = component else {
+            return Err(format!("invalid relative path: {member:?}"));
+        };
+        path.push(part);
+        match fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.is_symlink() => {
+                return Err(format!("symlink path is not allowed: {}", path.display()));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(format!("{}: {error}", path.display())),
+        }
+    }
+    Ok(path)
+}
+
 fn inspect(path: &Path, file: String) -> Result<Asset> {
     let (sha256, size) = file_identity(path)?;
     let a = Asset { file, sha256, size };
@@ -161,7 +207,6 @@ fn lock(l: &Lock) -> Result<()> {
     let mut destinations = BTreeSet::new();
     for (n, dst) in &l.install {
         name(n)?;
-        relative_path(dst)?;
         let Some(leaf) = dst.strip_prefix(".chrono-harness/bin/") else {
             return Err("tools must install under .chrono-harness/bin/".into());
         };
@@ -184,7 +229,7 @@ fn fetch(s: &Source, a: &Asset, to: &Path) -> Result<()> {
     source(s)?;
     match s {
         Source::Directory { path } => {
-            let from = no_symlink_parents(path, &a.file)?;
+            let from = member_path(path, &a.file)?;
             fs::copy(from, to).map_err(|e| e.to_string())?;
         }
         Source::Https { base_url, curl } => {
@@ -253,7 +298,7 @@ fn pack(root: &Path, assets: &Path, plan: &Path, out: &Path) -> Result<Value> {
     let mut tools = BTreeMap::new();
     for (n, path) in plan.assets {
         name(&n)?;
-        let from = no_symlink_parents(assets, &path)?;
+        let from = member_path(assets, &path)?;
         if fs::metadata(&from)
             .map_err(|e| e.to_string())?
             .permissions()
@@ -337,7 +382,7 @@ fn assemble(
                 return Err(format!("duplicate platform: {p}"));
             }
             for a in members.values() {
-                let from = no_symlink_parents(dir, &a.file)?;
+                let from = member_path(dir, &a.file)?;
                 verify(&from, a)?;
                 fs::copy(from, stage.path().join(&a.file)).map_err(|e| e.to_string())?;
             }
@@ -375,7 +420,7 @@ impl Drop for Guard {
     }
 }
 fn guard(root: &Path) -> Result<Guard> {
-    let path = no_symlink_parents(root, ".chrono-harness/.distribution-lock")?;
+    let path = member_path(root, ".chrono-harness/.distribution-lock")?;
     fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
     fs::OpenOptions::new()
         .write(true)
@@ -390,7 +435,7 @@ fn publish(root: &Path, stage: &Path, entries: &[(PathBuf, String)]) -> Result<(
     let mut applied: Vec<(PathBuf, Option<PathBuf>)> = Vec::new();
     for (i, (from, relative)) in entries.iter().enumerate() {
         let action = (|| {
-            let to = no_symlink_parents(root, relative)?;
+            let to = member_path(root, relative)?;
             if to.exists() && !to.is_file() {
                 return Err(format!("destination is not a file: {relative}"));
             }
@@ -536,7 +581,7 @@ pub fn adopt(
         (stage.path().join("launcher"), BOOTSTRAP_PATH.into()),
     ];
     for (from, dst) in &entries {
-        let path = no_symlink_parents(root, dst)?;
+        let path = member_path(root, dst)?;
         if path.exists()
             && !replace
             && fs::read(path).map_err(|e| e.to_string())?
@@ -559,7 +604,7 @@ pub fn adopt(
     Ok(value!({"version":l.version,"lock":LOCK_PATH,"bootstrap":BOOTSTRAP_PATH}))
 }
 pub fn install(root: &Path) -> Result<Value> {
-    let l: Lock = read(&no_symlink_parents(root, LOCK_PATH)?)?;
+    let l: Lock = read(&member_path(root, LOCK_PATH)?)?;
     lock(&l)?;
     let p = platform();
     let bootstrap = l
@@ -588,7 +633,7 @@ pub fn install(root: &Path) -> Result<Value> {
         let a = tools
             .get(n)
             .ok_or_else(|| format!("unregistered release member: {n}"))?;
-        let to = no_symlink_parents(root, dst)?;
+        let to = member_path(root, dst)?;
         if to.exists() && !to.is_file() {
             return Err(format!("destination is not a file: {dst}"));
         }
