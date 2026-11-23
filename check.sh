@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")"
-scratch=$(mktemp -d)
+mkdir -p target
+scratch=$(mktemp -d "$(pwd -P)/target/check.XXXXXXXX")
 trap 'rm -rf -- "$scratch"' EXIT
+export TMPDIR="$scratch"
 export CARGO_TARGET_DIR="$scratch/cargo"
 for project in distribution distribution-tests; do
   cargo metadata --locked --all-features --manifest-path "crates/$project/Cargo.toml" --format-version 1 > "$scratch/dependencies.json"
