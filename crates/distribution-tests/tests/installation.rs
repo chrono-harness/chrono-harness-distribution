@@ -447,6 +447,67 @@ fn pack_and_assemble_bind_real_source_and_declared_members() {
         fs::read(packed.join("release.json")).unwrap(),
         fs::read(combined.join("release.json")).unwrap()
     );
+    symlink(assets.path().join("built"), assets.path().join("linked")).unwrap();
+    let checked_output = out.path().join("checked");
+    let mut checked_args = args.clone();
+    *checked_args.last_mut().unwrap() = checked_output.display().to_string();
+    let package_member = |member: &str| {
+        save(
+            &repo.path().join("plan.json"),
+            &json!({"schema":"chrono-release-plan/v1","version":"v1-beta.1","assets":{"chrono-distribution":member}}),
+        );
+        pack(&checked_args)
+    };
+    let normalized = package_member("built//./installer/");
+    assert!(normalized.status.success(), "{:?}", normalized.stderr);
+    assert_eq!(
+        fs::read(checked_output.join(format!("chrono-distribution-{}", platform()))).unwrap(),
+        fs::read(assets.path().join("built/installer")).unwrap()
+    );
+    fs::remove_dir_all(&checked_output).unwrap();
+    for member in [
+        "",
+        "/built",
+        "../built",
+        "built/..",
+        "./built",
+        "built\\file",
+        "linked/\n",
+        "built/\r",
+        "built/\0",
+    ] {
+        let failure = package_member(member);
+        assert!(!failure.status.success());
+        assert!(
+            String::from_utf8_lossy(&failure.stderr)
+                .contains(&format!("invalid relative path: {member:?}"))
+        );
+        assert!(!checked_output.exists());
+    }
+    let link_message = format!(
+        "symlink path is not allowed: {}",
+        assets.path().join("linked").display()
+    );
+    let prefix = assets.path().join("built/installer/child");
+    let io_message = format!(
+        "{}: {}",
+        prefix.display(),
+        fs::symlink_metadata(&prefix).unwrap_err()
+    );
+    for (member, expected) in [
+        ("linked/installer", &link_message),
+        ("linked/..", &link_message),
+        ("built/installer/child/..", &io_message),
+    ] {
+        let failure = package_member(member);
+        assert!(!failure.status.success());
+        assert!(
+            String::from_utf8_lossy(&failure.stderr).contains(expected),
+            "{member}: {:?}",
+            failure.stderr
+        );
+        assert!(!checked_output.exists());
+    }
     fs::write(repo.path().join("source"), "dirty").unwrap();
     let mut dirty = args;
     *dirty.last_mut().unwrap() = out.path().join("dirty").display().to_string();
