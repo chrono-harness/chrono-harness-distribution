@@ -20,6 +20,22 @@ fn expect(ok: bool)
 }
 
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn launcher_options_preserve_modes_and_first_failure() {
+    use policy::{launcher_action, LauncherAction::*, LauncherOption, LauncherValue::*};
+    expect(matches!(launcher_action(false, LauncherOption::Host, true, Missing), MissingHost));
+    expect(matches!(launcher_action(true, LauncherOption::Host, true, Name), DuplicateHost));
+    expect(matches!(launcher_action(false, LauncherOption::Host, false, Other), SetHost));
+    expect(matches!(launcher_action(false, LauncherOption::Tool, false, Missing), InstallTool));
+    expect(matches!(launcher_action(true, LauncherOption::Tool, false, Missing), MissingTool));
+    expect(matches!(launcher_action(true, LauncherOption::Tool, false, Other), InvalidTool));
+    expect(matches!(launcher_action(true, LauncherOption::Tool, false, Name), AddTool));
+    expect(matches!(launcher_action(false, LauncherOption::Replace, true, Missing), InstallReplace));
+    expect(matches!(launcher_action(true, LauncherOption::Replace, true, Missing), DuplicateReplace));
+    expect(matches!(launcher_action(true, LauncherOption::Replace, false, Missing), SetReplace));
+    expect(matches!(launcher_action(true, LauncherOption::Unknown, false, Name), Unknown));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn manifest_leaf_names_and_path_boundaries() {
     expect(policy::valid_name(&[0x41u8, 0x2du8, 0x30u8, 0x5fu8, 0x7au8, 0x2eu8, 0x74u8]));
     expect(policy::valid_name(&[0x2eu8, 0x2eu8, 0x2eu8]));

@@ -512,6 +512,49 @@ fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
 
+/// A launcher must reject bad arguments before fetching its first executable.
+fn argument_cases(adopt: bool) -> String {
+    use asset_identity::{LauncherAction::*, LauncherOption, LauncherValue};
+    let mut cases: BTreeMap<&str, Vec<String>> = BTreeMap::new();
+    for (key, option) in [
+        ("host", LauncherOption::Host),
+        ("tool", LauncherOption::Tool),
+        ("replace", LauncherOption::Replace),
+        ("unknown", LauncherOption::Unknown),
+    ] {
+        for seen in [false, true] {
+            for (label, value) in [
+                ("missing", LauncherValue::Missing),
+                ("name", LauncherValue::Name),
+                ("other", LauncherValue::Other),
+            ] {
+                let command = match asset_identity::launcher_action(adopt, option, seen, value) {
+                    SetHost => "host_root=$2; host_seen=true; shift 2",
+                    AddTool => r#"tools="$tools $2"; shift 2"#,
+                    SetReplace => "replace=true; shift",
+                    MissingHost => "fail 'missing --host-root value'",
+                    DuplicateHost => "fail 'duplicate --host-root'",
+                    InstallTool => "fail '--tool is only valid for release adoption'",
+                    MissingTool => "fail 'missing --tool value'",
+                    InvalidTool => "fail 'invalid tool name'",
+                    InstallReplace => "fail '--replace is only valid for release adoption'",
+                    DuplicateReplace => "fail 'duplicate --replace'",
+                    Unknown => r#"fail "unknown option: $1""#,
+                };
+                cases
+                    .entry(command)
+                    .or_default()
+                    .push(format!("{key}:{seen}:{label}"));
+            }
+        }
+    }
+    cases
+        .into_iter()
+        .map(|(command, patterns)| format!("            {}) {command} ;;", patterns.join("|")))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// Generate a launcher from validated declarations; the shell never parses JSON.
 fn launcher(path: &Path, l: &Lock, bound_lock: Option<&Asset>) -> Result<()> {
     lock(l)?;
@@ -561,6 +604,7 @@ fn launcher(path: &Path, l: &Lock, bound_lock: Option<&Asset>) -> Result<()> {
         ));
     }
     let rendered = LAUNCHER
+        .replace("@ARGUMENTS@", &argument_cases(bound_lock.is_none()))
         .replace("@INSTALLERS@", &installers)
         .replace("@DECLARATIONS@", &declarations);
     fs::write(path, rendered).map_err(|e| e.to_string())?;

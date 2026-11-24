@@ -1,1 +1,1 @@
-{"template_sha256":"e42c1b9180cfad970628d045c7679ab1be6ab918337a0ed9150a762655f0f540","modes":["install","adopt"],"installer_exit_sample":23,"failed_transport_exit_sample":37}
+{"template_sha256":"cf5dbeb89b70461dc3202eb5423497c4f35cc50412c2c583eeb79fa5f013263a","modes":["install","adopt"],"installer_exit_sample":23,"failed_transport_exit_sample":37,"argument_cases_sha256":{"install":"ac38d16ae279c4d196353f328e9b9007ea50e5bca3f8ccf07fbdd3dfcf8563ca","adopt":"be3d0c1883d911987a553fff2d52b3a897c88990786326ea98c8003dbd7c415e"}}

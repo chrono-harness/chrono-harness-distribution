@@ -38,6 +38,7 @@ cargo build --locked --message-format=json-render-diagnostics --manifest-path "$
 cargo test --locked --manifest-path crates/distribution-tests/Cargo.toml --color never -- --format pretty | tee "$scratch/tests.log"
 for consumer in \
   adoption_reports_the_first_invalid_published_identity_before_writing_host_files \
+  launcher_options_preserve_modes_and_first_failure \
   bootstrap_rejects_corrupt_installer_and_propagates_real_exit \
   pack_and_assemble_bind_real_source_and_declared_members; do
   grep -Fxq "test $consumer ... ok" "$scratch/tests.log" || {

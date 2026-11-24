@@ -6,6 +6,54 @@ use verus_builtin_macros::verus;
 use vstd::prelude::*;
 
 verus! {
+
+/// The installer classifies raw argv words and its two previously-seen flags.
+#[derive(Clone, Copy)]
+pub enum LauncherOption { Host, Tool, Replace, Unknown }
+#[derive(Clone, Copy)]
+pub enum LauncherValue { Missing, Name, Other }
+pub enum LauncherAction {
+    SetHost, AddTool, SetReplace, MissingHost, DuplicateHost, InstallTool,
+    MissingTool, InvalidTool, InstallReplace, DuplicateReplace, Unknown,
+}
+
+/// This decision is evaluated by the release producer for every reachable shell
+/// observation. Unknown arguments and missing operands fail before any IO.
+pub fn launcher_action(adopt: bool, option: LauncherOption, seen: bool, value: LauncherValue)
+    -> (out: LauncherAction)
+    ensures
+        match option {
+            LauncherOption::Host => if value == LauncherValue::Missing { out == LauncherAction::MissingHost }
+                else if seen { out == LauncherAction::DuplicateHost } else { out == LauncherAction::SetHost },
+            LauncherOption::Tool => if !adopt { out == LauncherAction::InstallTool }
+                else { match value { LauncherValue::Missing => out == LauncherAction::MissingTool,
+                    LauncherValue::Name => out == LauncherAction::AddTool,
+                    LauncherValue::Other => out == LauncherAction::InvalidTool } },
+            LauncherOption::Replace => if !adopt { out == LauncherAction::InstallReplace }
+                else if seen { out == LauncherAction::DuplicateReplace } else { out == LauncherAction::SetReplace },
+            LauncherOption::Unknown => out == LauncherAction::Unknown,
+        },
+{
+    use LauncherAction::*;
+    match option {
+        LauncherOption::Host => match value {
+            LauncherValue::Missing => MissingHost,
+            _ if seen => DuplicateHost,
+            _ => SetHost,
+        },
+        LauncherOption::Tool if !adopt => InstallTool,
+        LauncherOption::Tool => match value {
+            LauncherValue::Missing => MissingTool,
+            LauncherValue::Name => AddTool,
+            LauncherValue::Other => InvalidTool,
+        },
+        LauncherOption::Replace if !adopt => InstallReplace,
+        LauncherOption::Replace if seen => DuplicateReplace,
+        LauncherOption::Replace => SetReplace,
+        LauncherOption::Unknown => Unknown,
+    }
+}
+
 pub open spec fn hex_digit(b: u8) -> bool {
     48 <= b <= 57 || 97 <= b <= 102
 }
