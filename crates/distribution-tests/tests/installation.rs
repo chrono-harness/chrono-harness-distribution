@@ -140,6 +140,52 @@ impl Fixture {
 }
 
 #[test]
+fn adoption_reports_the_first_invalid_published_identity_before_writing_host_files() {
+    let fixture = Fixture::new();
+    let pristine: Value = serde_json::from_slice(&fs::read(&fixture.manifest).unwrap()).unwrap();
+    for (field, invalid, expected) in [
+        ("version", json!(".."), "invalid release name"),
+        (
+            "source_commit",
+            json!("F".repeat(40)),
+            "invalid release identity",
+        ),
+        (
+            "source_tree",
+            json!("a".repeat(39)),
+            "invalid release identity",
+        ),
+        ("sha256", json!("G".repeat(64)), "invalid asset digest/size"),
+        ("size", json!(0), "invalid asset digest/size"),
+    ] {
+        let mut manifest = pristine.clone();
+        match field {
+            "sha256" | "size" => manifest["platforms"][platform()]["alpha"][field] = invalid,
+            _ => manifest[field] = invalid,
+        }
+        save(&fixture.manifest, &manifest);
+        let error = adopt(
+            fixture.host.path(),
+            &fixture.manifest,
+            Source::Directory {
+                path: fixture.release.path().into(),
+            },
+            &["alpha".into()],
+            false,
+        )
+        .unwrap_err();
+        assert!(error.contains(expected), "{field}: {error}");
+        assert!(
+            !fixture
+                .host
+                .path()
+                .join(".chrono-harness/distribution.json")
+                .exists()
+        );
+    }
+}
+
+#[test]
 fn install_update_repair_and_idempotence_preserve_unselected_tools() {
     let f = Fixture::new();
     f.adopt();

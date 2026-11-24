@@ -39,3 +39,7 @@ name = "chrono-test-git-model"
 path = "tests/support/git.rs"
 test = false
 bench = false
+
+[[test]]
+name = "asset_identity"
+path = "tests/asset_identity.rs"
