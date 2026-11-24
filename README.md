@@ -2,7 +2,7 @@
 
 构建发布清单、生成安装器并验证安装。
 
-使用 `cargo build --locked --manifest-path crates/distribution/Cargo.toml` 构建。运行 `mise exec -- ./check.sh` 检查依赖来源、格式、构建、原生测试和启动器测试替身的 Verus 证明。
+使用 `cargo build --locked --manifest-path crates/distribution/Cargo.toml` 构建。运行 `mise trust` 后，`./check.sh` 按 Git 变更执行登记的检查。发行资产或启动器变更会选中资产身份、独立预期及启动器模型的 Verus 证明，以及依赖来源检查、原生构建和安装用例。
 
 源码来自 [固定版本的原实现](https://github.com/ChronoAIProject/chrono-harness/tree/5f6892dfa2f73675a84e4ebdc3b06eb83b824d6e/crates/distribution)。
 
