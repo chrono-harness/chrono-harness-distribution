@@ -44,4 +44,46 @@ fn object_and_asset_hashes_are_exact_lowercase_hex() {
     expect(!policy::valid_asset_identity(&uppercase, 1));
     expect(!policy::valid_asset_identity(&outside_hex, 1));
 }
+
+struct Steps {
+    items: Vec<policy::Observation<u8>>,
+}
+
+impl policy::MemberSource<u8> for Steps {
+    closed spec fn pending(&self) -> Seq<policy::Observation<u8>> { self.items@ }
+
+    fn next(&mut self) -> (out: Option<policy::Observation<u8>>) {
+        if self.items.is_empty() { return None; }
+        let first = self.items.remove(0);
+        proof { assert(self.items@ =~= old(self).items@.drop_first()); }
+        Some(first)
+    }
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn text_precedes_observation_and_first_failure_wins() {
+    use policy::MemberError;
+    use policy::Observation;
+    let mut src = Steps { items: Vec::new() };
+    src.items.push(Observation::Symlink);
+    src.items.push(Observation::Io(20));
+    let bad = policy::check_member(&[65, 92], &mut src);
+    expect(matches!(bad, Err(MemberError::InvalidPath)));
+    expect(src.items.len() == 2);
+    proof { reveal_with_fuel(policy::first_error, 4); }
+    let link = policy::check_member(&[65], &mut src);
+    expect(matches!(link, Err(MemberError::Symlink)));
+
+    let mut src = Steps { items: Vec::new() };
+    src.items.push(Observation::Present);
+    src.items.push(Observation::Missing);
+    let accepted = policy::check_member(&[65, 47, 66], &mut src);
+    expect(accepted.is_ok());
+
+    let mut src = Steps { items: Vec::new() };
+    src.items.push(Observation::Io(20));
+    src.items.push(Observation::InvalidComponent);
+    let io = policy::check_member(&[65], &mut src);
+    expect(matches!(io, Err(MemberError::Io(20))));
+}
 }

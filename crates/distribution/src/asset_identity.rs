@@ -67,4 +67,86 @@ pub fn valid_asset_identity(digest: &[u8], size: u64) -> (valid: bool)
 {
     size > 0 && valid_hex(digest, 64)
 }
+
+pub open spec fn member_byte(b: u8) -> bool {
+    b != 0 && b != 13 && b != 10 && b != 92
+}
+
+pub open spec fn member_text(s: Seq<u8>) -> bool {
+    s.len() > 0 && forall|i: int| 0 <= i < s.len() ==> member_byte(#[trigger] s[i])
+}
+
+fn valid_member_text(s: &[u8]) -> (valid: bool)
+    ensures valid == member_text(s@),
+{
+    if s.is_empty() { return false; }
+    let mut i = 0;
+    while i < s.len()
+        invariant i <= s.len(), forall|j: int| 0 <= j < i ==> member_byte(#[trigger] s[j]),
+        decreases s.len() - i,
+    {
+        let b = s[i];
+        if b == 0 || b == 13 || b == 10 || b == 92 { return false; }
+        i += 1;
+    }
+    true
+}
+
+/// One Rust component and, for a normal component, the OS observation at its prefix.
+pub enum Observation<E> {
+    InvalidComponent,
+    Present,
+    Missing,
+    Symlink,
+    Io(E),
+}
+
+pub enum MemberError<E> {
+    InvalidPath,
+    Symlink,
+    Io(E),
+}
+
+pub trait MemberSource<E> {
+    spec fn pending(&self) -> Seq<Observation<E>>;
+
+    fn next(&mut self) -> (obs: Option<Observation<E>>)
+        ensures
+            old(self).pending().len() == 0 ==> obs == None::<Observation<E>> && self.pending() == old(self).pending(),
+            old(self).pending().len() > 0 ==> obs == Some(old(self).pending().first())
+                && self.pending() == old(self).pending().drop_first();
+}
+
+pub open spec fn first_error<E>(steps: Seq<Observation<E>>) -> Result<(), MemberError<E>>
+    decreases steps.len(),
+{
+    if steps.len() == 0 { Ok(()) } else {
+        match steps.first() {
+            Observation::InvalidComponent => Err(MemberError::InvalidPath),
+            Observation::Symlink => Err(MemberError::Symlink),
+            Observation::Io(e) => Err(MemberError::Io(e)),
+            Observation::Present | Observation::Missing => first_error(steps.drop_first()),
+        }
+    }
+}
+
+pub fn check_member<E, S: MemberSource<E>>(text: &[u8], source: &mut S) -> (out: Result<(), MemberError<E>>)
+    ensures
+        member_text(text@) ==> out == first_error(old(source).pending()),
+        !member_text(text@) ==> out == Result::<(), MemberError<E>>::Err(MemberError::InvalidPath) && source.pending() == old(source).pending(),
+{
+    if !valid_member_text(text) { return Err(MemberError::InvalidPath); }
+    loop
+        invariant member_text(text@), first_error(source.pending()) == first_error(old(source).pending()),
+        decreases source.pending().len(),
+    {
+        match source.next() {
+            None => return Ok(()),
+            Some(Observation::InvalidComponent) => return Err(MemberError::InvalidPath),
+            Some(Observation::Symlink) => return Err(MemberError::Symlink),
+            Some(Observation::Io(e)) => return Err(MemberError::Io(e)),
+            Some(Observation::Missing) | Some(Observation::Present) => (),
+        }
+    }
+}
 }

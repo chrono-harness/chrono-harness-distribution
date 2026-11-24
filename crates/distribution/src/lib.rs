@@ -102,26 +102,42 @@ fn file_identity(path: &Path) -> Result<(String, u64)> {
     Ok((format!("{:x}", digest.finalize()), size))
 }
 
-fn member_path(root: &Path, member: &str) -> Result<PathBuf> {
-    if member.is_empty() || member.contains(['\0', '\r', '\n', '\\']) {
-        return Err(format!("invalid relative path: {member:?}"));
-    }
-    let mut path = root.to_path_buf();
-    for component in Path::new(member).components() {
-        let Component::Normal(part) = component else {
-            return Err(format!("invalid relative path: {member:?}"));
+struct MemberComponents<'a> {
+    parts: std::path::Components<'a>,
+    path: PathBuf,
+}
+
+impl asset_identity::MemberSource<io::Error> for MemberComponents<'_> {
+    fn next(&mut self) -> Option<asset_identity::Observation<io::Error>> {
+        use asset_identity::Observation;
+        let Component::Normal(part) = self.parts.next()? else {
+            return Some(Observation::InvalidComponent);
         };
-        path.push(part);
-        match fs::symlink_metadata(&path) {
-            Ok(metadata) if metadata.is_symlink() => {
-                return Err(format!("symlink path is not allowed: {}", path.display()));
-            }
-            Ok(_) => {}
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => return Err(format!("{}: {error}", path.display())),
-        }
+        self.path.push(part);
+        Some(match fs::symlink_metadata(&self.path) {
+            Ok(metadata) if metadata.is_symlink() => Observation::Symlink,
+            Ok(_) => Observation::Present,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Observation::Missing,
+            Err(error) => Observation::Io(error),
+        })
     }
-    Ok(path)
+}
+
+fn member_path(root: &Path, member: &str) -> Result<PathBuf> {
+    use asset_identity::MemberError;
+    let mut source = MemberComponents {
+        parts: Path::new(member).components(),
+        path: root.to_path_buf(),
+    };
+    match asset_identity::check_member(member.as_bytes(), &mut source) {
+        Ok(()) => Ok(source.path),
+        Err(MemberError::InvalidPath) => Err(format!("invalid relative path: {member:?}")),
+        Err(MemberError::Symlink) => Err(format!(
+            "symlink path is not allowed: {}",
+            source.path.display()
+        )),
+        Err(MemberError::Io(error)) => Err(format!("{}: {error}", source.path.display())),
+    }
 }
 
 fn inspect(path: &Path, file: String) -> Result<Asset> {
