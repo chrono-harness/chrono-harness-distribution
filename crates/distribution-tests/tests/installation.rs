@@ -215,16 +215,12 @@ fn install_update_repair_and_idempotence_preserve_unselected_tools() {
 }
 
 #[test]
-fn corrupt_late_download_preserves_all_old_binaries_and_receipt() {
+fn corrupt_late_download_preserves_installed_binaries() {
     let f = Fixture::new();
     f.adopt();
     install(f.host.path()).unwrap();
     let old = fs::read(f.binary("alpha")).unwrap();
-    let receipt = f
-        .host
-        .path()
-        .join(".chrono-harness/state/distribution.json");
-    let old_receipt = fs::read(&receipt).unwrap();
+    let old_beta = fs::read(f.binary("beta")).unwrap();
     f.changed_release();
     fs::write(f.release.path().join(format!("beta-{}", platform())), "bad").unwrap();
     assert!(
@@ -233,7 +229,7 @@ fn corrupt_late_download_preserves_all_old_binaries_and_receipt() {
             .contains("integrity mismatch")
     );
     assert_eq!(fs::read(f.binary("alpha")).unwrap(), old);
-    assert_eq!(fs::read(receipt).unwrap(), old_receipt);
+    assert_eq!(fs::read(f.binary("beta")).unwrap(), old_beta);
 }
 
 #[test]
@@ -301,27 +297,30 @@ fn escaping_and_symlink_destinations_are_rejected() {
 }
 
 #[test]
-fn ordinary_publish_failure_rolls_back_already_replaced_tools() {
-    let f = Fixture::new();
-    f.adopt();
-    install(f.host.path()).unwrap();
-    let old = fs::read(f.binary("alpha")).unwrap();
-    f.changed_release();
-    fs::remove_file(
-        f.host
-            .path()
-            .join(".chrono-harness/state/distribution.json"),
+fn ordinary_publish_failure_restores_the_previous_adoption() {
+    let fixture = Fixture::new();
+    fixture.adopt();
+    let host = fixture.host.path();
+    let lock = host.join(".chrono-harness/distribution.json");
+    let original = fs::read(&lock).unwrap();
+    let launcher = host.join(".chrono-harness/install.sh");
+    fs::remove_file(&launcher).unwrap();
+    fs::create_dir(&launcher).unwrap();
+
+    let error = adopt(
+        host,
+        &fixture.manifest,
+        Source::Directory {
+            path: fixture.release.path().into(),
+        },
+        &["alpha".into()],
+        true,
     )
-    .unwrap();
-    fs::remove_dir(f.host.path().join(".chrono-harness/state")).unwrap();
-    fs::write(
-        f.host.path().join(".chrono-harness/state"),
-        "blocked parent",
-    )
-    .unwrap();
-    let error = install(f.host.path()).unwrap_err();
+    .unwrap_err();
+    assert!(error.contains("destination is not a file"), "{error}");
     assert!(error.contains("rollback errors: []"), "{error}");
-    assert_eq!(fs::read(f.binary("alpha")).unwrap(), old);
+    assert_eq!(fs::read(lock).unwrap(), original);
+    assert!(launcher.is_dir());
 }
 
 #[test]
@@ -580,10 +579,9 @@ fn real_generated_bootstrap_installs_from_unrelated_cwd_and_spaced_host() {
             .stdout,
         b"alpha-v1\n"
     );
-    let report: Value = serde_json::from_slice(
-        &fs::read(host.join(".chrono-harness/state/distribution.json")).unwrap(),
-    )
-    .unwrap();
+    assert!(!host.join(".chrono-harness/state").exists());
+    let report: Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(report["schema"], "chrono-install-result/v1");
     assert_eq!(report["platform"], platform());
     assert_eq!(report["installed"].as_array().unwrap().len(), 2);
 }
