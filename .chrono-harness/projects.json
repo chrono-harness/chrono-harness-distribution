@@ -1,0 +1,108 @@
+{
+  "schema_version": 2,
+  "status": "active",
+  "owners": [
+    "host",
+    "distribution",
+    "distribution-tests"
+  ],
+  "projects": [
+    {
+      "id": "distribution",
+      "kind": "production",
+      "manifest": "crates/distribution/Cargo.toml",
+      "lockfile": "crates/distribution/Cargo.lock",
+      "root": "crates/distribution",
+      "test_project": "distribution-tests",
+      "actions": {
+        "verify_asset_identity": {
+          "operation": "verify.distribution-asset-identity",
+          "tool": "verus",
+          "argv": [
+            "--crate-type=lib",
+            "--no-cheating",
+            "--no-external-by-default",
+            "--num-threads",
+            "2",
+            "--output-json",
+            "--compile",
+            "--emit=link=.chrono-harness/state/verify.distribution-asset-identity.rlib,dep-info=.chrono-harness/state/verify.distribution-asset-identity.rlib.d",
+            "crates/distribution/src/asset_identity.rs",
+            "-o",
+            ".chrono-harness/state/verify.distribution-asset-identity.rlib",
+            "-Zchecksum-hash-algorithm=sha256"
+          ],
+          "output_contract": {
+            "version": "0.2026.04.24.f8e1704",
+            "commit": "f8e17045c4ac17a02e566b8997070f2eecc255be"
+          }
+        }
+      },
+      "language": "rust"
+    },
+    {
+      "id": "distribution-tests",
+      "kind": "test",
+      "manifest": "crates/distribution-tests/Cargo.toml",
+      "lockfile": "crates/distribution-tests/Cargo.lock",
+      "root": "crates/distribution-tests",
+      "tests_for": "distribution",
+      "actions": {
+        "verify_asset_identity_tests": {
+          "operation": "verify.distribution-asset-identity-tests",
+          "tool": "verus",
+          "argv": [
+            "--crate-type=lib",
+            "--no-cheating",
+            "--no-external-by-default",
+            "--num-threads",
+            "2",
+            "--output-json",
+            "--compile",
+            "--emit=link=.chrono-harness/state/verify.distribution-asset-identity-tests.rlib,dep-info=.chrono-harness/state/verify.distribution-asset-identity-tests.rlib.d",
+            "crates/distribution-tests/tests/asset_identity.rs",
+            "-o",
+            ".chrono-harness/state/verify.distribution-asset-identity-tests.rlib",
+            "-Zchecksum-hash-algorithm=sha256"
+          ],
+          "output_contract": {
+            "version": "0.2026.04.24.f8e1704",
+            "commit": "f8e17045c4ac17a02e566b8997070f2eecc255be"
+          }
+        },
+        "verify_bootstrap": {
+          "operation": "verify.distribution-bootstrap",
+          "tool": "verus",
+          "argv": [
+            "--crate-type=lib",
+            "--no-cheating",
+            "--no-external-by-default",
+            "--num-threads",
+            "2",
+            "--output-json",
+            "--compile",
+            "--emit=link=.chrono-harness/state/verify.distribution-bootstrap.rlib,dep-info=.chrono-harness/state/verify.distribution-bootstrap.rlib.d",
+            "crates/distribution-tests/tests/support/bootstrap.rs",
+            "-o",
+            ".chrono-harness/state/verify.distribution-bootstrap.rlib",
+            "-Zchecksum-hash-algorithm=sha256"
+          ],
+          "output_contract": {
+            "version": "0.2026.04.24.f8e1704",
+            "commit": "f8e17045c4ac17a02e566b8997070f2eecc255be"
+          }
+        },
+        "execute": {
+          "operation": "distribution.owner-check",
+          "tool": "bash",
+          "argv": [
+            "./check.sh",
+            "--native"
+          ]
+        }
+      },
+      "language": "rust"
+    }
+  ],
+  "scripts": []
+}
