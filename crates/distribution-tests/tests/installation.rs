@@ -848,14 +848,23 @@ fn pinned_host_shell_rejects_lock_drift_and_bad_arguments() {
             .output()
             .unwrap()
     };
-    for args in [
-        vec!["--unknown"],
-        vec!["--host-root"],
-        vec!["--tool", "alpha"],
-        vec!["--replace"],
+    for (args, diagnostic) in [
+        (vec!["--unknown"], "unknown option: --unknown"),
+        (vec!["--host-root"], "missing --host-root value"),
+        (vec!["--host-root", ""], "missing --host-root value"),
+        (vec!["--host-root", "."], "duplicate --host-root"),
+        (vec!["--tool"], "--tool is only valid for release adoption"),
+        (
+            vec!["--replace", "--unknown"],
+            "--replace is only valid for release adoption",
+        ),
     ] {
         let result = launch(&args);
-        assert!(!result.status.success());
+        assert_eq!(result.status.code(), Some(1));
+        assert_eq!(
+            String::from_utf8(result.stderr).unwrap().trim_end(),
+            format!("E_DISTRIBUTION_BOOTSTRAP: {diagnostic}")
+        );
         assert!(!f.binary("alpha").exists());
     }
     f.edit_lock(|l| l["version"] = json!("v0.1.0-beta.2"));

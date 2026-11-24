@@ -16,27 +16,19 @@ main() {
     host_seen=false
     while [ "$#" -gt 0 ]; do
         case "$1" in
-            --host-root)
-                [ "$#" -ge 2 ] && [ -n "$2" ] || fail 'missing --host-root value'
-                [ "$host_seen" = false ] || fail 'duplicate --host-root'
-                host_root=$2
-                host_seen=true
-                shift 2
-                ;;
-            --tool)
-                [ "$mode" = adopt ] || fail '--tool is only valid for release adoption'
-                [ "$#" -ge 2 ] && [ -n "$2" ] || fail 'missing --tool value'
-                case "$2" in *[!a-zA-Z0-9._-]*|.|..) fail 'invalid tool name' ;; esac
-                tools="$tools $2"
-                shift 2
-                ;;
-            --replace)
-                [ "$mode" = adopt ] || fail '--replace is only valid for release adoption'
-                [ "$replace" = false ] || fail 'duplicate --replace'
-                replace=true
-                shift
-                ;;
-            *) fail "unknown option: $1" ;;
+            --host-root) option=host; seen=$host_seen ;;
+            --tool) option=tool; seen=false ;;
+            --replace) option=replace; seen=$replace ;;
+            *) option=unknown; seen=false ;;
+        esac
+        case "${2-}" in
+            '') value=missing ;;
+            .|..|*[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-]*) value=other ;;
+            *) value=name ;;
+        esac
+        case "$option:$seen:$value" in
+@ARGUMENTS@
+            *) fail 'invalid launcher argument state' ;;
         esac
     done
     case "$host_root" in /*) ;; *) host_root=./$host_root ;; esac

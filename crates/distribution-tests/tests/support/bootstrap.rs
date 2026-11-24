@@ -44,11 +44,15 @@ mod runtime {
             return Err("unregistered launcher template".into());
         }
         let (prefix, rest) = TEMPLATE.split_once("@DECLARATIONS@").unwrap();
-        let (middle, suffix) = rest.split_once("@INSTALLERS@").unwrap();
+        let (middle, rest) = rest.split_once("@ARGUMENTS@").unwrap();
+        let (platforms, suffix) = rest.split_once("@INSTALLERS@").unwrap();
         let body = script
             .strip_prefix(prefix)
             .ok_or("unknown launcher prefix")?;
         let (raw_declarations, body) = body.split_once(middle).ok_or("unknown launcher body")?;
+        let (arguments, body) = body
+            .split_once(platforms)
+            .ok_or("missing argument policy")?;
         let raw_installers = body.strip_suffix(suffix).ok_or("unknown launcher suffix")?;
         let mut declarations = BTreeMap::new();
         for line in raw_declarations.lines() {
@@ -102,6 +106,11 @@ mod runtime {
             && !(declarations.contains_key("lock_sha256") && declarations.contains_key("lock_size"))
         {
             return Err("missing launcher lock binding".into());
+        }
+        if domain["argument_cases_sha256"][&declarations["mode"]].as_str()
+            != Some(format!("{:x}", Sha256::digest(arguments.as_bytes())).as_str())
+        {
+            return Err("unknown launcher argument policy".into());
         }
         let mut installers = BTreeMap::new();
         for line in raw_installers.lines() {
@@ -259,18 +268,21 @@ mod runtime {
         while at < arguments.len() {
             match arguments[at].as_str() {
                 "--host-root" => {
-                    if host_seen {
-                        return Err("duplicate --host-root".into());
-                    }
-                    host_seen = true;
                     let value = arguments
                         .get(at + 1)
                         .filter(|value| !value.is_empty())
                         .ok_or("missing --host-root value")?;
+                    if host_seen {
+                        return Err("duplicate --host-root".into());
+                    }
+                    host_seen = true;
                     root = PathBuf::from(value);
                     at += 2;
                 }
-                "--tool" if adopt => {
+                "--tool" if !adopt => {
+                    return Err("--tool is only valid for release adoption".into());
+                }
+                "--tool" => {
                     let value = arguments
                         .get(at + 1)
                         .filter(|value| !value.is_empty())
@@ -286,7 +298,11 @@ mod runtime {
                     tools.push(value.clone());
                     at += 2;
                 }
-                "--replace" if adopt && !replace => {
+                "--replace" if !adopt => {
+                    return Err("--replace is only valid for release adoption".into());
+                }
+                "--replace" if replace => return Err("duplicate --replace".into()),
+                "--replace" => {
                     replace = true;
                     at += 1;
                 }
