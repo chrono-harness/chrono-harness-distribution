@@ -1,6 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")"
+if [[ $# -eq 0 ]]; then
+  /bin/sh .chrono-harness/ci/install.sh
+  export PATH="$PWD/.chrono-harness/bin:$PATH"
+  export CHRONO_CHECK_SOURCE=${CHRONO_CHECK_SOURCE:-local}
+  exec .chrono-harness/bin/chrono-harness check
+fi
+if [[ $# -ne 1 || $1 != --native ]]; then
+  echo 'usage: ./check.sh [--native]' >&2
+  exit 2
+fi
+
 mkdir -p target
 scratch=$(mktemp -d "$(pwd -P)/target/check.XXXXXXXX")
 trap 'rm -rf -- "$scratch"' EXIT
@@ -24,26 +35,20 @@ cargo fmt --check --manifest-path crates/distribution/Cargo.toml
 cargo fmt --check --manifest-path crates/distribution-tests/Cargo.toml
 product=crates/distribution/Cargo.toml
 cargo build --locked --message-format=json-render-diagnostics --manifest-path "$product" > "$scratch/build.jsonl"
-cargo test --locked --manifest-path crates/distribution-tests/Cargo.toml
+cargo test --locked --manifest-path crates/distribution-tests/Cargo.toml --color never -- --format pretty | tee "$scratch/tests.log"
+for consumer in \
+  adoption_reports_the_first_invalid_published_identity_before_writing_host_files \
+  bootstrap_rejects_corrupt_installer_and_propagates_real_exit \
+  pack_and_assemble_bind_real_source_and_declared_members; do
+  grep -Fxq "test $consumer ... ok" "$scratch/tests.log" || {
+    echo "E_VERUS_COVERAGE: required distribution consumer did not pass: $consumer" >&2
+    exit 1
+  }
+done
 
 coverage_failure() {
   echo "E_VERUS_COVERAGE: $*" >&2
   exit 1
-}
-
-verifier=$(command -v "${VERUS:-verus}") || coverage_failure "registered verifier was not found"
-
-prove() {
-  chrono-host-bootstrap run-compiler-proof "$scratch" "$1" "$verifier" "$2" ||
-    coverage_failure "$1: verifier failed"
-}
-
-admit_proof() {
-  local operation=$1
-  shift
-  chrono-host-bootstrap collect-compiler-proof "$scratch" "$operation" "$verifier" \
-    0.2026.04.24.f8e1704 f8e17045c4ac17a02e566b8997070f2eecc255be "$@" ||
-    coverage_failure "$operation: required proof result was not admitted"
 }
 
 # Read the exact library selected by Cargo in the build of the tested executable.
@@ -57,15 +62,3 @@ stem=${filename#lib}
 stem=${metadata%/*}/${stem%.rmeta}
 chrono-host-bootstrap check-compiler-sources native "$stem" src/asset_identity.rs src/lib.rs ||
   coverage_failure "distribution: native library differs from required sources"
-
-asset=crates/distribution/src/asset_identity.rs
-cases=crates/distribution-tests/tests/asset_identity.rs
-launcher=crates/distribution-tests/tests/support/bootstrap.rs
-
-prove asset-identity "$asset"
-prove asset-identity-tests "$cases"
-prove bootstrap "$launcher"
-
-admit_proof asset-identity "$asset"
-admit_proof asset-identity-tests "$cases" crates/distribution-tests/tests/../../distribution/src/asset_identity.rs
-admit_proof bootstrap "$launcher"
