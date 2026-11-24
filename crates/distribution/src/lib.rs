@@ -1,4 +1,5 @@
 //! Distribution knows explicit release members and destinations, never host projects.
+pub mod asset_identity;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json as value};
 use serde_with::{MapPreventDuplicates, serde_as};
@@ -73,25 +74,14 @@ fn write<T: Serialize>(path: &Path, data: &T) -> Result<()> {
     fs::write(path, bytes).map_err(|e| e.to_string())
 }
 fn name(s: &str) -> Result<()> {
-    if s.is_empty()
-        || s == "."
-        || s == ".."
-        || !s
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
-    {
+    if !asset_identity::valid_name(s.as_bytes()) {
         return Err(format!("invalid release name: {s:?}"));
     }
     Ok(())
 }
-fn hex(s: &str, n: usize) -> bool {
-    s.len() == n
-        && s.bytes()
-            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
-}
 fn asset(a: &Asset) -> Result<()> {
     name(&a.file)?;
-    if !hex(&a.sha256, 64) || a.size == 0 {
+    if !asset_identity::valid_asset_identity(a.sha256.as_bytes(), a.size) {
         return Err("invalid asset digest/size".into());
     }
     Ok(())
@@ -152,8 +142,8 @@ pub fn platform() -> String {
 }
 fn release(r: &Release) -> Result<()> {
     if r.schema != "chrono-release/v1"
-        || !hex(&r.source_commit, 40)
-        || !hex(&r.source_tree, 40)
+        || !asset_identity::valid_hex(r.source_commit.as_bytes(), 40)
+        || !asset_identity::valid_hex(r.source_tree.as_bytes(), 40)
         || r.platforms.is_empty()
     {
         return Err("invalid release identity".into());
