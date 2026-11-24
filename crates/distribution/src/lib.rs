@@ -646,9 +646,6 @@ pub fn install(root: &Path) -> Result<Value> {
         installed.push(value!({"name":n,"path":dst,"sha256":a.sha256,"size":a.size}));
     }
     let report = value!({"schema":"chrono-install-result/v1","version":r.version,"source_commit":r.source_commit,"source_tree":r.source_tree,"platform":p,"manifest":l.manifest,"installed":installed});
-    let receipt = stage.path().join("receipt");
-    write(&receipt, &report)?;
-    entries.push((receipt, ".chrono-harness/state/distribution.json".into()));
     let result = publish(root, stage.path(), &entries);
     if result.is_err() {
         let saved = stage.keep();
