@@ -165,10 +165,12 @@ fn install_marker_and_expiry_boundaries() {
 
 #[cfg_attr(not(verus_keep_ghost), test)]
 fn measured_asset_requires_both_digest_and_size() {
-    expect(policy::matches_observed_asset("0123", 10, "0123", 10));
-    expect(!policy::matches_observed_asset("0123", 10, "0124", 10));
-    expect(!policy::matches_observed_asset("0123", 10, "0123", 11));
-    expect(!policy::matches_observed_asset("0123", 10, "0124", 11));
+    let original = "0123".to_owned();
+    let different = "0124".to_owned();
+    expect(policy::matches_observed_asset(&original, 10, &original, 10));
+    expect(!policy::matches_observed_asset(&original, 10, &different, 10));
+    expect(!policy::matches_observed_asset(&original, 10, &original, 11));
+    expect(!policy::matches_observed_asset(&original, 10, &different, 11));
 }
 
 }

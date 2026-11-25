@@ -225,11 +225,11 @@ pub fn valid_asset_identity(digest: &[u8], size: u64) -> (valid: bool)
 
 /// Compare the declared asset with the digest and byte count from the same read.
 pub fn matches_observed_asset(
-    declared_digest: &str, declared_size: u64, observed_digest: &str, observed_size: u64,
+    declared_digest: &String, declared_size: u64, observed_digest: &String, observed_size: u64,
 ) -> (matches: bool)
     ensures matches == (declared_digest@ == observed_digest@ && declared_size == observed_size),
 {
-    declared_size == observed_size && declared_digest == observed_digest
+    declared_size == observed_size && declared_digest.eq(observed_digest)
 }
 
 pub open spec fn member_byte(b: u8) -> bool {
