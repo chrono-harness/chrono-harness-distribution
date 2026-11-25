@@ -27,8 +27,18 @@ fn same_file(left: &fs::Metadata, right: &fs::Metadata) -> bool {
 
 pub(crate) struct Guard {
     area: PathBuf,
-    gate: File,
+    gate: WriterLock,
     marker: PathBuf,
+}
+
+/// End the writer's lock at the operation boundary. A concurrent fork can
+/// temporarily share this open file description until its exec closes it.
+struct WriterLock(File);
+
+impl Drop for WriterLock {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
 }
 
 impl Guard {
@@ -46,11 +56,12 @@ impl Guard {
             .map_err(|e| e.to_string())?;
         gate.try_lock()
             .map_err(|e| format!("installation lock {}: {e}", marker.display()))?;
+        let gate = WriterLock(gate);
         match fs::hard_link(&gate_path, &marker) {
             Ok(()) => {}
             Err(e) if e.kind() == ErrorKind::AlreadyExists => {
                 let existing = fs::symlink_metadata(&marker).map_err(|e| e.to_string())?;
-                if !same_file(&gate.metadata().map_err(|e| e.to_string())?, &existing) {
+                if !same_file(&gate.0.metadata().map_err(|e| e.to_string())?, &existing) {
                     return Err(format!(
                         "installation lock {}: existing owner unknown",
                         marker.display()
@@ -80,7 +91,7 @@ impl Guard {
 
 impl Drop for Guard {
     fn drop(&mut self) {
-        if let (Ok(gate), Ok(marker)) = (self.gate.metadata(), fs::symlink_metadata(&self.marker))
+        if let (Ok(gate), Ok(marker)) = (self.gate.0.metadata(), fs::symlink_metadata(&self.marker))
             && same_file(&gate, &marker)
         {
             let _ = fs::remove_file(&self.marker);
@@ -199,6 +210,7 @@ pub(crate) fn maintain(root: &Path, seconds: u64) -> Result<usize> {
         Err(fs::TryLockError::WouldBlock) => return Ok(0),
         Err(fs::TryLockError::Error(e)) => return Err(e.to_string()),
     }
+    let file = WriterLock(file);
     let mut removed = 0;
     for entry in fs::read_dir(&area).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
@@ -215,7 +227,7 @@ pub(crate) fn maintain(root: &Path, seconds: u64) -> Result<usize> {
     }
     let marker = member_path(root, LOCK)?;
     match fs::symlink_metadata(&marker) {
-        Ok(meta) if same_file(&file.metadata().map_err(|e| e.to_string())?, &meta) => {
+        Ok(meta) if same_file(&file.0.metadata().map_err(|e| e.to_string())?, &meta) => {
             fs::remove_file(marker).map_err(|e| e.to_string())?
         }
         Ok(_) => {}
