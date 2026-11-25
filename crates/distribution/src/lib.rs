@@ -97,13 +97,18 @@ fn asset(a: &Asset) -> Result<()> {
     }
     Ok(())
 }
-fn file_identity(path: &Path) -> Result<(String, u64)> {
+fn require_regular_file(path: &Path) -> Result<()> {
     if !fs::metadata(path)
         .map_err(|e| format!("{}: {e}", path.display()))?
         .is_file()
     {
         return Err(format!("not a regular input file: {}", path.display()));
     }
+    Ok(())
+}
+
+fn file_identity(path: &Path) -> Result<(String, u64)> {
+    require_regular_file(path)?;
     let mut file = fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
     if !file.metadata().map_err(|e| e.to_string())?.is_file() {
         return Err(format!("not a regular input file: {}", path.display()));
@@ -178,17 +183,20 @@ fn release(r: &Release) -> Result<()> {
     }
     name(&r.version)?;
     let mut files = BTreeSet::new();
-    let mut members = None;
+    let mut members: Option<Vec<&String>> = None;
     for (p, tools) in &r.platforms {
         name(p)?;
         if !tools.contains_key("chrono-distribution") {
             return Err("release has no installer".into());
         }
-        let names: BTreeSet<_> = tools.keys().collect();
-        if members.as_ref().is_some_and(|old| old != &names) {
-            return Err("platform release members differ".into());
+        let names: Vec<_> = tools.keys().collect();
+        if let Some(first) = &members {
+            if !asset_identity::same_platform_members(first, &names) {
+                return Err("platform release members differ".into());
+            }
+        } else {
+            members = Some(names);
         }
-        members = Some(names);
         for (n, a) in tools {
             name(n)?;
             asset(a)?;
@@ -398,8 +406,10 @@ fn assemble(
             }
             for a in members.values() {
                 let from = member_path(dir, &a.file)?;
-                verify(&from, a)?;
-                fs::copy(from, stage.path().join(&a.file)).map_err(|e| e.to_string())?;
+                require_regular_file(&from)?;
+                let staged = stage.path().join(&a.file);
+                fs::copy(from, &staged).map_err(|e| e.to_string())?;
+                verify(&staged, a)?;
             }
             c.platforms.insert(p, members);
         }

@@ -19,6 +19,23 @@ fn expect(ok: bool)
     if !ok { panic!(); }
 }
 
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn all_platforms_must_publish_the_same_member_names() {
+    let a = "a".to_string();
+    let b = "b".to_string();
+    let other_b = "b".to_string();
+    let c = "c".to_string();
+    proof {
+        reveal_strlit("b");
+        reveal_strlit("c");
+        assert(b@[0] != c@[0]);
+    }
+    expect(policy::same_platform_members(&[&a, &b], &[&a, &other_b]));
+    expect(!policy::same_platform_members(&[&a, &b], &[&a]));
+    expect(!policy::same_platform_members(&[&a], &[&a, &b]));
+    expect(!policy::same_platform_members(&[&a, &b], &[&a, &c]));
+}
+
 /// One field at a time and simultaneous failures exercise both value and precedence.
 #[cfg_attr(not(verus_keep_ghost), test)]
 fn platform_assembly_preserves_source_and_first_error() {
