@@ -223,6 +223,15 @@ pub fn valid_asset_identity(digest: &[u8], size: u64) -> (valid: bool)
     size > 0 && valid_hex(digest, 64)
 }
 
+/// Compare the declared asset with the digest and byte count from the same read.
+pub fn matches_observed_asset(
+    declared_digest: &str, declared_size: u64, observed_digest: &str, observed_size: u64,
+) -> (matches: bool)
+    ensures matches == (declared_digest@ == observed_digest@ && declared_size == observed_size),
+{
+    declared_size == observed_size && declared_digest == observed_digest
+}
+
 pub open spec fn member_byte(b: u8) -> bool {
     b != 0 && b != 13 && b != 10 && b != 92
 }

@@ -163,4 +163,12 @@ fn install_marker_and_expiry_boundaries() {
     expect(policy::install_stage_expired(5, Some(5)));
 }
 
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn measured_asset_requires_both_digest_and_size() {
+    expect(policy::matches_observed_asset("0123", 10, "0123", 10));
+    expect(!policy::matches_observed_asset("0123", 10, "0124", 10));
+    expect(!policy::matches_observed_asset("0123", 10, "0123", 11));
+    expect(!policy::matches_observed_asset("0123", 10, "0124", 11));
+}
+
 }
