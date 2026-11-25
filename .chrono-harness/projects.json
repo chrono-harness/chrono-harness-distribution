@@ -26,10 +26,10 @@
             "2",
             "--output-json",
             "--compile",
-            "--emit=link=.chrono-harness/state/verify.distribution-asset-identity.rlib,dep-info=.chrono-harness/state/verify.distribution-asset-identity.rlib.d",
+            "--emit=link={operation_state}/verify.distribution-asset-identity.rlib,dep-info={operation_state}/verify.distribution-asset-identity.rlib.d",
             "crates/distribution/src/asset_identity.rs",
             "-o",
-            ".chrono-harness/state/verify.distribution-asset-identity.rlib",
+            "{operation_state}/verify.distribution-asset-identity.rlib",
             "-Zchecksum-hash-algorithm=sha256"
           ],
           "output_contract": {
@@ -59,10 +59,10 @@
             "2",
             "--output-json",
             "--compile",
-            "--emit=link=.chrono-harness/state/verify.distribution-asset-identity-tests.rlib,dep-info=.chrono-harness/state/verify.distribution-asset-identity-tests.rlib.d",
+            "--emit=link={operation_state}/verify.distribution-asset-identity-tests.rlib,dep-info={operation_state}/verify.distribution-asset-identity-tests.rlib.d",
             "crates/distribution-tests/tests/asset_identity.rs",
             "-o",
-            ".chrono-harness/state/verify.distribution-asset-identity-tests.rlib",
+            "{operation_state}/verify.distribution-asset-identity-tests.rlib",
             "-Zchecksum-hash-algorithm=sha256"
           ],
           "output_contract": {
@@ -81,10 +81,10 @@
             "2",
             "--output-json",
             "--compile",
-            "--emit=link=.chrono-harness/state/verify.distribution-bootstrap.rlib,dep-info=.chrono-harness/state/verify.distribution-bootstrap.rlib.d",
+            "--emit=link={operation_state}/verify.distribution-bootstrap.rlib,dep-info={operation_state}/verify.distribution-bootstrap.rlib.d",
             "crates/distribution-tests/tests/support/bootstrap.rs",
             "-o",
-            ".chrono-harness/state/verify.distribution-bootstrap.rlib",
+            "{operation_state}/verify.distribution-bootstrap.rlib",
             "-Zchecksum-hash-algorithm=sha256"
           ],
           "output_contract": {
