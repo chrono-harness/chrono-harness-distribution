@@ -476,20 +476,42 @@ fn publish(root: &Path, stage: &Path, entries: &[(PathBuf, String)]) -> Result<(
     }
     Ok(())
 }
+struct SelectedTools<'a> {
+    available: &'a BTreeMap<String, Asset>,
+    destinations: BTreeMap<String, String>,
+}
+
+impl asset_identity::SelectionIndex for SelectedTools<'_> {
+    fn insert(&mut self, name: &String, prefix: &str) -> bool {
+        self.destinations
+            .insert(name.clone(), prefix.to_owned() + name)
+            .is_some()
+    }
+
+    fn contains(&self, name: &String) -> bool {
+        self.available.contains_key(name)
+    }
+}
+
 fn adoption(manifest: &Path, r: &Release, origin: Source, members: &[String]) -> Result<Lock> {
     source(&origin)?;
-    let install: BTreeMap<_, _> = members
-        .iter()
-        .map(|n| (n.clone(), format!(".chrono-harness/bin/{n}")))
-        .collect();
-    if install.len() != members.len() {
-        return Err("duplicate selected member".into());
-    }
-    for tools in r.platforms.values() {
-        for n in members {
-            if !tools.contains_key(n) {
-                return Err(format!("unknown release member: {n}"));
-            }
+    // release() has already required every platform to publish the same names.
+    let available = r
+        .platforms
+        .values()
+        .next()
+        .ok_or("invalid release identity")?;
+    let mut selected = SelectedTools {
+        available,
+        destinations: BTreeMap::new(),
+    };
+    match asset_identity::select_members(members, &mut selected) {
+        Ok(()) => {}
+        Err(asset_identity::SelectionError::Duplicate) => {
+            return Err("duplicate selected member".into());
+        }
+        Err(asset_identity::SelectionError::Unknown(i)) => {
+            return Err(format!("unknown release member: {}", members[i]));
         }
     }
     let l = Lock {
@@ -502,7 +524,7 @@ fn adoption(manifest: &Path, r: &Release, origin: Source, members: &[String]) ->
             .iter()
             .map(|(p, t)| (p.clone(), t["chrono-distribution"].clone()))
             .collect(),
-        install,
+        install: selected.destinations,
     };
     lock(&l)?;
     Ok(l)

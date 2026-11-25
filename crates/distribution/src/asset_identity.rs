@@ -54,6 +54,99 @@ pub fn launcher_action(adopt: bool, option: LauncherOption, seen: bool, value: L
     }
 }
 
+/// Membership in a validated platform manifest and the local map being constructed.
+pub trait SelectionIndex {
+    spec fn available(&self) -> Set<Seq<char>>;
+    spec fn destinations(&self) -> Map<Seq<char>, Seq<char>>;
+
+    /// Insert the prefixed name, returning the BTreeMap's original occupancy.
+    fn insert(&mut self, name: &String, prefix: &str) -> (occupied: bool)
+        ensures
+            occupied == old(self).destinations().contains_key(name@),
+            self.destinations() == old(self).destinations().insert(name@, prefix@ + name@),
+            self.available() == old(self).available();
+
+    fn contains(&self, name: &String) -> (known: bool)
+        ensures known == self.available().contains(name@);
+}
+
+pub enum SelectionError {
+    Duplicate,
+    Unknown(usize),
+}
+
+pub open spec fn different_names(names: Seq<String>, n: int) -> bool {
+    forall|i: int, j: int| 0 <= i < j < n ==> names[i]@ != names[j]@
+}
+
+pub open spec fn exact_selection(names: Seq<String>, n: int, chosen: Map<Seq<char>, Seq<char>>) -> bool {
+    &&& forall|k: Seq<char>| chosen.contains_key(k) <==> exists|i: int| 0 <= i < n && (#[trigger] names[i])@ == k
+    &&& forall|i: int| 0 <= i < n ==> chosen[(#[trigger] names[i])@] == ".chrono-harness/bin/"@ + names[i]@
+}
+
+pub open spec fn selection_outcome(names: Seq<String>, available: Set<Seq<char>>,
+    destinations: Map<Seq<char>, Seq<char>>, out: Result<(), SelectionError>) -> bool {
+    match out {
+            Err(SelectionError::Duplicate) => !different_names(names, names.len() as int),
+            Err(SelectionError::Unknown(i)) => {
+                &&& different_names(names, names.len() as int)
+                &&& i < names.len() && !available.contains(names[i as int]@)
+                &&& forall|j: int| 0 <= j < i ==> available.contains((#[trigger] names[j])@)
+            },
+            Ok(()) => {
+                &&& different_names(names, names.len() as int)
+                &&& exact_selection(names, names.len() as int, destinations)
+                &&& forall|j: int| 0 <= j < names.len() ==> available.contains((#[trigger] names[j])@)
+            },
+        }
+}
+
+pub fn select_members<T: SelectionIndex>(names: &[String], index: &mut T) -> (out: Result<(), SelectionError>)
+    requires old(index).destinations() == Map::<Seq<char>, Seq<char>>::empty(),
+    ensures
+        index.available() == old(index).available(),
+        selection_outcome(names@, old(index).available(), index.destinations(), out),
+{
+    let mut i = 0;
+    while i < names.len()
+        invariant
+            i <= names.len(),
+            index.available() == old(index).available(),
+            different_names(names@, i as int),
+            exact_selection(names@, i as int, index.destinations()),
+        decreases names.len() - i,
+    {
+        let ghost before = index.destinations();
+        if index.insert(&names[i], ".chrono-harness/bin/") {
+            proof {
+                let j = choose|j: int| 0 <= j < i && (#[trigger] names@[j])@ == names@[i as int]@;
+                assert(names@[j]@ == names@[i as int]@);
+            }
+            return Err(SelectionError::Duplicate);
+        }
+        proof {
+            assert forall|k: Seq<char>| index.destinations().contains_key(k) <==>
+                exists|j: int| 0 <= j < i + 1 && (#[trigger] names@[j])@ == k by {
+                if k == names@[i as int]@ { assert(i < i + 1); }
+            }
+        }
+        i += 1;
+    }
+    i = 0;
+    while i < names.len()
+        invariant
+            i <= names.len(), index.available() == old(index).available(),
+            different_names(names@, names.len() as int),
+            exact_selection(names@, names.len() as int, index.destinations()),
+            forall|j: int| 0 <= j < i ==> index.available().contains((#[trigger] names@[j])@),
+        decreases names.len() - i,
+    {
+        if !index.contains(&names[i]) { return Err(SelectionError::Unknown(i)); }
+        i += 1;
+    }
+    Ok(())
+}
+
 pub open spec fn hex_digit(b: u8) -> bool {
     48 <= b <= 57 || 97 <= b <= 102
 }

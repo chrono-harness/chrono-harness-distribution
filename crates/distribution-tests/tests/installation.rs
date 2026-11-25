@@ -140,6 +140,52 @@ impl Fixture {
 }
 
 #[test]
+fn adoption_selects_exact_destinations_and_preserves_the_prior_lock_on_first_error() {
+    let fixture = Fixture::new();
+    let select = |members: &[&str], replace| {
+        adopt(
+            fixture.host.path(),
+            &fixture.manifest,
+            Source::Directory {
+                path: fixture.release.path().into(),
+            },
+            &members
+                .iter()
+                .map(|name| name.to_string())
+                .collect::<Vec<_>>(),
+            replace,
+        )
+    };
+    select(&["beta"], false).unwrap();
+    let lock = fixture
+        .host
+        .path()
+        .join(".chrono-harness/distribution.json");
+    let launcher = fixture.host.path().join(".chrono-harness/install.sh");
+    let original = fs::read(&lock).unwrap();
+    let original_launcher = fs::read(&launcher).unwrap();
+    let parsed: Value = serde_json::from_slice(&original).unwrap();
+    assert_eq!(
+        parsed["install"],
+        json!({"beta": ".chrono-harness/bin/beta"})
+    );
+    for (names, expected) in [
+        (vec!["alpha", "alpha"], "duplicate selected member"),
+        (vec!["missing"], "unknown release member: missing"),
+        (vec!["second", "first"], "unknown release member: second"),
+        (vec!["absent", "absent"], "duplicate selected member"),
+        (
+            vec!["absent", "alpha", "alpha"],
+            "duplicate selected member",
+        ),
+    ] {
+        assert_eq!(select(&names, true).unwrap_err(), expected);
+        assert_eq!(fs::read(&lock).unwrap(), original);
+        assert_eq!(fs::read(&launcher).unwrap(), original_launcher);
+    }
+}
+
+#[test]
 fn adoption_reports_the_first_invalid_published_identity_before_writing_host_files() {
     let fixture = Fixture::new();
     let pristine: Value = serde_json::from_slice(&fs::read(&fixture.manifest).unwrap()).unwrap();
