@@ -163,4 +163,19 @@ fn install_marker_and_expiry_boundaries() {
     expect(policy::install_stage_expired(5, Some(5)));
 }
 
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn measured_asset_requires_both_digest_and_size() {
+    let original = "0123".to_owned();
+    let different = "0124".to_owned();
+    proof {
+        reveal_strlit("0123");
+        reveal_strlit("0124");
+        assert(original@[3] != different@[3]);
+    }
+    expect(policy::matches_observed_asset(&original, 10, &original, 10));
+    expect(!policy::matches_observed_asset(&original, 10, &different, 10));
+    expect(!policy::matches_observed_asset(&original, 10, &original, 11));
+    expect(!policy::matches_observed_asset(&original, 10, &different, 11));
+}
+
 }

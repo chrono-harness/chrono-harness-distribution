@@ -149,7 +149,8 @@ fn inspect(path: &Path, file: String) -> Result<Asset> {
 }
 fn verify(path: &Path, a: &Asset) -> Result<()> {
     asset(a)?;
-    if file_identity(path)? != (a.sha256.clone(), a.size) {
+    let (digest, size) = file_identity(path)?;
+    if !asset_identity::matches_observed_asset(&a.sha256, a.size, &digest, size) {
         return Err(format!("integrity mismatch: {}", a.file));
     }
     Ok(())
