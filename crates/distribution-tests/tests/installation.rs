@@ -1086,3 +1086,61 @@ fn interpreter_mock_rejects_unknown_template_and_installed_asset_bytes() {
     assert!(asset.stdout.is_empty());
     assert_eq!(asset.stderr, b"unknown distribution asset fixture bytes\n");
 }
+
+#[test]
+fn installer_maintains_only_its_expired_released_stages() {
+    use std::time::{Duration, SystemTime};
+    let f = Fixture::new();
+    f.adopt();
+    let host = f.host.path();
+    let area = host.join(".chrono-harness/distribution-work");
+    let gate = area.join("gate");
+    let marker = host.join(".chrono-harness/.distribution-lock");
+    let maintain = |keep: &str| {
+        run(&[
+            "maintain".into(),
+            "--host-root".into(),
+            host.to_str().unwrap().into(),
+            "--keep-seconds".into(),
+            keep.into(),
+        ])
+    };
+    let past = SystemTime::now() - Duration::from_secs(3600);
+    let stage = |name: &str, marker_name: &str| {
+        let path = area.join(name);
+        fs::create_dir(&path).unwrap();
+        if !marker_name.is_empty() {
+            fs::hard_link(&gate, path.join(marker_name)).unwrap();
+        }
+        fs::write(path.join("payload-0"), b"downloaded bytes").unwrap();
+        fs::File::open(&path).unwrap().set_modified(past).unwrap();
+        path
+    };
+    let working = stage("stage-0123456789abcdef", ".prepared");
+    let recovery = stage("stage-fedcba9876543210", ".publishing");
+    let unknown = stage("stage-AAAAAAAAAAAAAAAA", "");
+    let changed = stage("stage-BBBBBBBBBBBBBBBB", ".prepared");
+    fs::write(changed.join("foreign"), b"independently owned").unwrap();
+    fs::File::open(&changed)
+        .unwrap()
+        .set_modified(past)
+        .unwrap();
+    let copy = fs::read(working.join("payload-0")).unwrap();
+    let reader = fs::File::open(&working).unwrap();
+    reader.lock_shared().unwrap();
+    assert!(maintain("0").is_err());
+    assert_eq!(maintain("1").unwrap()["removed"], 0);
+    drop(reader);
+    assert_eq!(maintain("7200").unwrap()["removed"], 0);
+    fs::hard_link(&gate, &marker).unwrap();
+    install(host).unwrap();
+    assert!(!marker.exists());
+    assert_eq!(maintain("1").unwrap()["removed"], 1);
+    assert!(!working.exists());
+    assert_eq!(copy, b"downloaded bytes");
+    assert!(recovery.is_dir() && unknown.is_dir() && changed.is_dir());
+    let active = fs::File::open(&gate).unwrap();
+    active.lock().unwrap();
+    assert!(install(host).unwrap_err().contains("installation lock"));
+    assert_eq!(maintain("1").unwrap()["removed"], 0);
+}

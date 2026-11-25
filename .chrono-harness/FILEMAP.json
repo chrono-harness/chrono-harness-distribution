@@ -664,6 +664,18 @@
       ]
     },
     {
+      "path": "crates/distribution/src/staging.rs",
+      "owner": "distribution",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:distribution-tests"
+        }
+      ]
+    },
+    {
       "path": "crates/distribution/src/main.rs",
       "owner": "distribution",
       "surface": "product",

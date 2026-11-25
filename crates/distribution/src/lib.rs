@@ -1,5 +1,6 @@
 //! Distribution knows explicit release members and destinations, never host projects.
 pub mod asset_identity;
+mod staging;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json as value};
 use serde_with::{MapPreventDuplicates, serde_as};
@@ -230,7 +231,7 @@ fn lock(l: &Lock) -> Result<()> {
     }
     Ok(())
 }
-fn fetch(s: &Source, a: &Asset, to: &Path) -> Result<()> {
+fn fetch(s: &Source, a: &Asset, to: &Path, stage: &staging::Stage) -> Result<()> {
     asset(a)?;
     source(s)?;
     match s {
@@ -239,7 +240,9 @@ fn fetch(s: &Source, a: &Asset, to: &Path) -> Result<()> {
             fs::copy(from, to).map_err(|e| e.to_string())?;
         }
         Source::Https { base_url, curl } => {
-            let status = Command::new(curl)
+            let mut command = Command::new(curl);
+            stage.borrow(&mut command).map_err(|e| e.to_string())?;
+            let status = command
                 .args([
                     "--disable",
                     "--fail",
@@ -419,22 +422,6 @@ fn assemble(
     )
 }
 
-struct Guard(PathBuf);
-impl Drop for Guard {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
-    }
-}
-fn guard(root: &Path) -> Result<Guard> {
-    let path = member_path(root, ".chrono-harness/.distribution-lock")?;
-    fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
-    fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&path)
-        .map_err(|e| format!("installation lock {}: {e}", path.display()))?;
-    Ok(Guard(path))
-}
 /// Roll back ordinary rename failures, retaining backups if recovery itself fails.
 /// This does not promise crash atomicity or cooperation from unrelated writers.
 fn publish(root: &Path, stage: &Path, entries: &[(PathBuf, String)]) -> Result<()> {
@@ -643,8 +630,8 @@ pub fn adopt(
     let r: Release = read(manifest)?;
     release(&r)?;
     let l = adoption(manifest, &r, origin, members)?;
-    let _guard = guard(root)?;
-    let stage = tempfile::tempdir_in(root.join(".chrono-harness")).map_err(|e| e.to_string())?;
+    let guard = staging::Guard::acquire(root)?;
+    let stage = guard.stage()?;
     write(&stage.path().join("lock"), &l)?;
     let bound_lock = inspect(&stage.path().join("lock"), "distribution.json".into())?;
     launcher(&stage.path().join("launcher"), &l, Some(&bound_lock))?;
@@ -664,15 +651,7 @@ pub fn adopt(
             ));
         }
     }
-    let result = publish(root, stage.path(), &entries);
-    if result.is_err() {
-        let saved = stage.keep();
-        return Err(format!(
-            "{}; recovery directory: {}",
-            result.unwrap_err(),
-            saved.display()
-        ));
-    }
+    stage.publish(root, &entries)?;
     Ok(value!({"version":l.version,"lock":LOCK_PATH,"bootstrap":BOOTSTRAP_PATH}))
 }
 pub fn install(root: &Path) -> Result<Value> {
@@ -683,10 +662,10 @@ pub fn install(root: &Path) -> Result<Value> {
         .installers
         .get(&p)
         .ok_or_else(|| format!("unregistered platform: {p}"))?;
-    let _guard = guard(root)?;
-    let stage = tempfile::tempdir_in(root.join(".chrono-harness")).map_err(|e| e.to_string())?;
+    let guard = staging::Guard::acquire(root)?;
+    let stage = guard.stage()?;
     let manifest = stage.path().join("release.json");
-    fetch(&l.source, &l.manifest, &manifest)?;
+    fetch(&l.source, &l.manifest, &manifest, &stage)?;
     let r: Release = read(&manifest)?;
     release(&r)?;
     if r.version != l.version {
@@ -719,8 +698,8 @@ pub fn install(root: &Path) -> Result<Value> {
                 & 0o111
                 != 0;
         if !reusable {
-            let from = stage.path().join(&a.file);
-            fetch(&l.source, a, &from)?;
+            let from = stage.path().join(format!("payload-{}", entries.len()));
+            fetch(&l.source, a, &from, &stage)?;
             fs::set_permissions(&from, fs::Permissions::from_mode(0o755))
                 .map_err(|e| e.to_string())?;
             entries.push((from, dst.clone()));
@@ -728,15 +707,7 @@ pub fn install(root: &Path) -> Result<Value> {
         installed.push(value!({"name":n,"path":dst,"sha256":a.sha256,"size":a.size}));
     }
     let report = value!({"schema":"chrono-install-result/v1","version":r.version,"source_commit":r.source_commit,"source_tree":r.source_tree,"platform":p,"manifest":l.manifest,"installed":installed});
-    let result = publish(root, stage.path(), &entries);
-    if result.is_err() {
-        let saved = stage.keep();
-        return Err(format!(
-            "{}; recovery directory: {}",
-            result.unwrap_err(),
-            saved.display()
-        ));
-    }
+    stage.publish(root, &entries)?;
     Ok(report)
 }
 
@@ -784,6 +755,7 @@ pub fn run(args: &[String]) -> Result<Value> {
             "--replace",
         ],
         "install" => &["--host-root"],
+        "maintain" => &["--host-root", "--keep-seconds"],
         _ => return Err("expected pack/assemble/adopt/install".into()),
     };
     for (k, v) in &values {
@@ -846,6 +818,13 @@ pub fn run(args: &[String]) -> Result<Value> {
             )
         }
         "install" => install(Path::new(get("--host-root")?)),
+        "maintain" => {
+            let seconds = get("--keep-seconds")?
+                .parse::<u64>()
+                .map_err(|e| e.to_string())?;
+            let removed = staging::maintain(Path::new(get("--host-root")?), seconds)?;
+            Ok(value!({"removed":removed}))
+        }
         "adopt" => {
             let s = origin()?;
             adopt(
