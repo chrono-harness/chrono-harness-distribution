@@ -401,7 +401,7 @@ fn assemble(
             platforms: BTreeMap::new(),
         });
         for (p, members) in r.platforms {
-            if c.platforms.contains_key(&p) {
+            if !asset_identity::platform_available(&c.platforms, &p) {
                 return Err(format!("duplicate platform: {p}"));
             }
             for a in members.values() {
@@ -419,23 +419,56 @@ fn assemble(
         r.version = version.into();
     }
     release(&r)?;
-    write(&stage.path().join("release.json"), &r)?;
-    let identity = inspect(&stage.path().join("release.json"), "release.json".into())?;
-    let members = r
-        .platforms
-        .values()
-        .next()
-        .unwrap()
-        .keys()
-        .cloned()
-        .collect::<Vec<_>>();
-    let l = adoption(&stage.path().join("release.json"), &r, origin, &members)?;
-    launcher(&stage.path().join("install.sh"), &l, None)?;
-    let bootstrap = inspect(&stage.path().join("install.sh"), "install.sh".into())?;
-    fs::rename(stage.path(), out).map_err(|e| e.to_string())?;
+    let mut output = AssemblyPublication {
+        release: &r,
+        stage: stage.path(),
+        destination: out,
+        origin,
+    };
+    let (identity, bootstrap) = asset_identity::publish_assembly(&mut output)?;
     Ok(
         value!({"manifest":identity,"bootstrap":bootstrap,"version":r.version,"platforms":r.platforms.keys().collect::<Vec<_>>()}),
     )
+}
+
+struct AssemblyPublication<'a> {
+    release: &'a Release,
+    stage: &'a Path,
+    destination: &'a Path,
+    origin: Source,
+}
+
+impl asset_identity::Publication<Asset, String> for AssemblyPublication<'_> {
+    fn manifest(&mut self) -> Result<Asset> {
+        let path = self.stage.join("release.json");
+        write(&path, self.release)?;
+        inspect(&path, "release.json".into())
+    }
+
+    fn launcher(&mut self) -> Result<Asset> {
+        let members = self
+            .release
+            .platforms
+            .values()
+            .next()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        let lock = adoption(
+            &self.stage.join("release.json"),
+            self.release,
+            self.origin.clone(),
+            &members,
+        )?;
+        let path = self.stage.join("install.sh");
+        launcher(&path, &lock, None)?;
+        inspect(&path, "install.sh".into())
+    }
+
+    fn rename(&mut self) -> Result<()> {
+        fs::rename(self.stage, self.destination).map_err(|e| e.to_string())
+    }
 }
 
 /// Roll back ordinary rename failures, retaining backups if recovery itself fails.

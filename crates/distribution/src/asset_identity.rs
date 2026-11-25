@@ -251,6 +251,63 @@ pub fn same_platform_members(first: &[&String], next: &[&String]) -> (same: bool
     true
 }
 
+/// A repeated platform cannot add or replace members already in this assembly.
+pub fn platform_available<K: Ord, V>(platforms: &std::collections::BTreeMap<K, V>, platform: &K)
+    -> (available: bool)
+    requires vstd::laws_cmp::obeys_cmp::<K>(),
+    ensures available == !platforms@.contains_key(*platform),
+{
+    !platforms.contains_key(platform)
+}
+
+pub enum PublicationStep<A, E> {
+    Manifest(Result<A, E>),
+    Launcher(Result<A, E>),
+    Rename(Result<(), E>),
+}
+
+/// Operation results are supplied by the filesystem adapter. Each call appends
+/// its own result, including an error when the write, inspection or rename fails.
+pub trait Publication<A, E> {
+    spec fn steps(&self) -> Seq<PublicationStep<A, E>>;
+
+    fn manifest(&mut self) -> (result: Result<A, E>)
+        ensures self.steps() == old(self).steps().push(PublicationStep::<A, E>::Manifest(result));
+    fn launcher(&mut self) -> (result: Result<A, E>)
+        ensures self.steps() == old(self).steps().push(PublicationStep::<A, E>::Launcher(result));
+    fn rename(&mut self) -> (result: Result<(), E>)
+        ensures self.steps() == old(self).steps().push(PublicationStep::<A, E>::Rename(result));
+}
+
+/// An assembly becomes visible only after both staged outputs are complete.
+pub fn publish_assembly<A, E, P: Publication<A, E>>(output: &mut P) -> (result: Result<(A, A), E>)
+    ensures ({
+        let start = old(output).steps().len() as int;
+        let steps = output.steps();
+        match result {
+            Ok((manifest, launcher)) => {
+                &&& steps.len() == start + 3
+                &&& steps[start] == PublicationStep::<A, E>::Manifest(Ok(manifest))
+                &&& steps[start+1] == PublicationStep::<A, E>::Launcher(Ok(launcher))
+                &&& (steps[start+2] matches PublicationStep::Rename(Ok(_)))
+            },
+            Err(error) => {
+                ||| steps.len() == start + 1 && steps[start] == PublicationStep::<A, E>::Manifest(Err(error))
+                ||| steps.len() == start + 2 && (steps[start] matches PublicationStep::Manifest(Ok(_)))
+                    && steps[start+1] == PublicationStep::<A, E>::Launcher(Err(error))
+                ||| steps.len() == start + 3 && (steps[start] matches PublicationStep::Manifest(Ok(_)))
+                    && (steps[start+1] matches PublicationStep::Launcher(Ok(_)))
+                    && steps[start+2] == PublicationStep::<A, E>::Rename(Err(error))
+            },
+        }
+    }),
+{
+    let manifest = output.manifest()?;
+    let launcher = output.launcher()?;
+    output.rename()?;
+    Ok((manifest, launcher))
+}
+
 /// The three manifest fields that must match across a release's platforms.
 #[derive(Clone, Copy)]
 pub struct AssemblySource<'a> {
