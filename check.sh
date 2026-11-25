@@ -37,6 +37,7 @@ product=crates/distribution/Cargo.toml
 cargo build --locked --message-format=json-render-diagnostics --manifest-path "$product" > "$scratch/build.jsonl"
 cargo test --locked --manifest-path crates/distribution-tests/Cargo.toml --color never -- --format pretty | tee "$scratch/tests.log"
 for consumer in \
+  adoption_selects_exact_destinations_and_preserves_the_prior_lock_on_first_error \
   adoption_reports_the_first_invalid_published_identity_before_writing_host_files \
   launcher_options_preserve_modes_and_first_failure \
   bootstrap_rejects_corrupt_installer_and_propagates_real_exit \

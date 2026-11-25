@@ -19,6 +19,55 @@ fn expect(ok: bool)
     if !ok { panic!(); }
 }
 
+/// Independent consequences for a selected name missing twice, two distinct
+/// unknown names, and a single available member with its exact lock destination.
+proof fn selection_first_failure_and_exact_destination(
+    first: String, second: String, available: Set<Seq<char>>,
+    destinations: Map<Seq<char>, Seq<char>>, out: Result<(), policy::SelectionError>,
+)
+    requires first@ != second@, !available.contains(first@), !available.contains(second@),
+    ensures
+        policy::selection_outcome(seq![first, second, second], available, destinations, out)
+            ==> out == Err::<(), _>(policy::SelectionError::Duplicate),
+        policy::selection_outcome(seq![first, second], available, destinations, out)
+            ==> out == Err::<(), _>(policy::SelectionError::Unknown(0)),
+        policy::selection_outcome(seq![first], available.insert(first@), destinations, out)
+            ==> out.is_ok()
+            && destinations.dom() =~= set![first@]
+            && destinations[first@] == ".chrono-harness/bin/"@ + first@,
+{
+    let repeated = seq![first, second, second];
+    assert(repeated[1]@ == repeated[2]@);
+    let distinct = seq![first, second];
+    assert forall|a:int, b:int| 0 <= a < b < 2 implies distinct[a]@ != distinct[b]@ by {
+        assert(a == 0 && b == 1);
+    }
+    let singleton = seq![first];
+    if policy::selection_outcome(singleton, available.insert(first@), destinations, out) {
+        assert(policy::different_names(singleton, 1));
+        match out {
+            Err(policy::SelectionError::Duplicate) => { assert(!policy::different_names(singleton,singleton.len() as int)); assert(false); },
+            Err(policy::SelectionError::Unknown(i)) => {
+                assert(i == 0 && singleton[0]@ == first@);
+                assert(!available.insert(first@).contains(singleton[i as int]@));
+                assert(available.insert(first@).contains(first@));
+                assert(false);
+            },
+            Ok(()) => {},
+        }
+        assert(out.is_ok());
+        assert(singleton[0]@ == first@);
+        assert(destinations[first@] == ".chrono-harness/bin/"@ + first@);
+        assert forall|k:Seq<char>| destinations.dom().contains(k) <==> k == first@ by {
+            if destinations.dom().contains(k) {
+                let i = choose|i: int| 0 <= i < 1 && (#[trigger] singleton[i])@ == k;
+                assert(i == 0);
+            } else if k == first@ { assert(singleton[0]@ == k); }
+        }
+        assert(destinations.dom() =~= set![first@]);
+    }
+}
+
 #[cfg_attr(not(verus_keep_ghost), test)]
 fn launcher_options_preserve_modes_and_first_failure() {
     use policy::{launcher_action, LauncherAction::*, LauncherOption, LauncherValue::*};
