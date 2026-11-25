@@ -36,6 +36,47 @@ fn all_platforms_must_publish_the_same_member_names() {
     expect(!policy::same_platform_members(&[&a, &b], &[&a, &c]));
 }
 
+/// For any real adapter, distinguish a failure during rename from an earlier
+/// write failure and require the exact identities in a successful receipt.
+fn publication_results_follow_the_last_completed_step<P: policy::Publication<u8, u8>>(
+    output: &mut P,
+)
+{
+    let ghost start = output.steps().len() as int;
+    let result = policy::publish_assembly(output);
+    proof {
+        let steps = output.steps();
+        if steps.len() == start + 1 && steps[start] == policy::PublicationStep::<u8,u8>::Manifest(Err(7u8)) {
+            assert(result == Err::<(u8,u8),u8>(7u8));
+        }
+        if steps.len() == start + 2 && steps[start + 1] == policy::PublicationStep::<u8,u8>::Launcher(Err(13u8)) {
+            assert(steps[start] matches policy::PublicationStep::Manifest(Ok(_)));
+            assert(result == Err::<(u8,u8),u8>(13u8));
+        }
+        if steps.len() == start + 3 {
+            assert(steps[start] matches policy::PublicationStep::Manifest(Ok(_)));
+            assert(steps[start + 1] matches policy::PublicationStep::Launcher(Ok(_)));
+            if steps[start + 2] == policy::PublicationStep::<u8,u8>::Rename(Err(23u8)) {
+                assert(result == Err::<(u8,u8),u8>(23u8));
+            }
+            if steps[start] == policy::PublicationStep::<u8,u8>::Manifest(Ok(4u8))
+                && steps[start + 1] == policy::PublicationStep::<u8,u8>::Launcher(Ok(9u8))
+                && (steps[start + 2] matches policy::PublicationStep::Rename(Ok(_))) {
+                assert(result == Ok::<(u8,u8),u8>((4u8,9u8)));
+            }
+        }
+    }
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn occupied_platforms_are_rejected() {
+    let mut platforms = std::collections::BTreeMap::<u64, u8>::new();
+    expect(policy::platform_available(&platforms, &2));
+    platforms.insert(2, 7);
+    expect(!policy::platform_available(&platforms, &2));
+    expect(policy::platform_available(&platforms, &3));
+}
+
 /// One field at a time and simultaneous failures exercise both value and precedence.
 #[cfg_attr(not(verus_keep_ghost), test)]
 fn platform_assembly_preserves_source_and_first_error() {
