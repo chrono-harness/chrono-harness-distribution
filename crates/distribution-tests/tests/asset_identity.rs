@@ -151,4 +151,16 @@ fn text_precedes_observation_and_first_failure_wins() {
     let io = policy::check_member(&[65], &mut src);
     expect(matches!(io, Err(MemberError::Io(20))));
 }
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn install_marker_and_expiry_boundaries() {
+    expect(policy::same_install_file(true, 3, 5, true, 3, 5));
+    expect(!policy::same_install_file(true, 3, 5, true, 3, 6));
+    expect(!policy::same_install_file(true, 3, 5, true, 6, 5));
+    expect(!policy::same_install_file(false, 3, 5, true, 3, 5));
+    expect(!policy::same_install_file(true, 3, 5, false, 3, 5));
+    expect(!policy::install_stage_expired(5, None));
+    expect(!policy::install_stage_expired(5, Some(4)));
+    expect(policy::install_stage_expired(5, Some(5)));
+}
+
 }

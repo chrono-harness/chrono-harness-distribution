@@ -7,6 +7,20 @@ use vstd::prelude::*;
 
 verus! {
 
+/// Identity of the regular inode reported for the operation marker and this host's gate.
+pub fn same_install_file(left_regular: bool, left_dev: u64, left_ino: u64,
+    right_regular: bool, right_dev: u64, right_ino: u64) -> (same: bool)
+    ensures same == (left_regular && right_regular && left_dev == right_dev && left_ino == right_ino),
+{
+    left_regular && right_regular && left_dev == right_dev && left_ino == right_ino
+}
+
+pub fn install_stage_expired(keep: u64, elapsed: Option<u64>) -> (ready: bool)
+    ensures ready == (elapsed is Some && elapsed->Some_0 >= keep),
+{
+    match elapsed {Some(age) => age >= keep, None => false}
+}
+
 /// The installer classifies raw argv words and its two previously-seen flags.
 #[derive(Clone, Copy)]
 pub enum LauncherOption { Host, Tool, Replace, Unknown }

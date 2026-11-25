@@ -19,3 +19,5 @@
 ```cron
 0 * * * * cd '/absolute/path/to/repository' && '/absolute/path/to/mise' run harness-maintain-checks >/dev/null
 ```
+
+原生 adopt/install 共用宿主安装锁。安装中断后可用同一版本重试。准备中的下载位于 `.chrono-harness/distribution-work/` 的专用目录，宿主已有的定时维护可调用 `chrono-distribution maintain --host-root . --keep-seconds 86400`，单位为秒。需要保留的原件应在窗口内转存，读取期间可对专用目录持共享锁。命令在 stdout 返回本轮清理的目录数。发布中断或替换失败时应先检查原有目的地和恢复目录中的备份。旧版本留下的锁与未登记的目录需要按其原操作核实归属。
