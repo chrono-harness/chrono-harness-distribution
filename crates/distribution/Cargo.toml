@@ -1,6 +1,6 @@
 [package]
 name = "chrono-distribution"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 publish = false
 description = "Explicit binary release packaging and pinned host installation"
