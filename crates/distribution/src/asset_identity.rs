@@ -232,6 +232,25 @@ pub fn matches_observed_asset(
     declared_size == observed_size && declared_digest.eq(observed_digest)
 }
 
+/// Each platform supplies the names from its manifest in BTreeMap key order.
+pub fn same_platform_members(first: &[&String], next: &[&String]) -> (same: bool)
+    ensures same == (first.len() == next.len()
+        && forall|i: int| 0 <= i < first.len() ==> (#[trigger] first[i])@ == next[i]@),
+{
+    if first.len() != next.len() { return false; }
+    let mut i = 0;
+    while i < first.len()
+        invariant
+            first.len() == next.len(), i <= first.len(),
+            forall|j: int| 0 <= j < i ==> (#[trigger] first[j])@ == next[j]@,
+        decreases first.len() - i,
+    {
+        if !first[i].eq(next[i]) { return false; }
+        i += 1;
+    }
+    true
+}
+
 /// The three manifest fields that must match across a release's platforms.
 #[derive(Clone, Copy)]
 pub struct AssemblySource<'a> {
