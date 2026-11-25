@@ -14,10 +14,6 @@
 
 本仓的单元和汇总检查在各自的业务目录发布原件。判官读回本次 Verus 编译库及依赖文件后，成功的操作会释放这两份文件。检查报告的保留窗口为 24 小时，需要长期保存的报告及其引用原件须在窗口内按相对路径转存，并在检出外读回。
 
-开发机可将下列命令按实际安装路径加入用户 crontab，每小时调用本仓的模板维护任务。已到期的成功报告在读取和交付义务结束后释放，后续维护轮次回收已失去引用的原件。独立维护依赖机器在线及已安装的定时任务。
+运行 `mise run harness-maintain-checks` 可执行一轮本仓的检查产物维护。已到期的成功报告在读取和交付义务结束后释放，后续维护轮次回收失去引用的原件。没有业务事件或显式维护时，到期的文件会继续占用磁盘。
 
-```cron
-0 * * * * cd '/absolute/path/to/repository' && '/absolute/path/to/mise' run harness-maintain-checks >/dev/null
-```
-
-原生 adopt/install 共用宿主安装锁。安装中断后可用同一版本重试。准备中的下载位于 `.chrono-harness/distribution-work/` 的专用目录，宿主已有的定时维护可调用 `chrono-distribution maintain --host-root . --keep-seconds 86400`，单位为秒。需要保留的原件应在窗口内转存，读取期间可对专用目录持共享锁。命令在 stdout 返回本轮清理的目录数。发布中断或替换失败时应先检查原有目的地和恢复目录中的备份。旧版本留下的锁与未登记的目录需要按其原操作核实归属。
+原生 adopt/install 共用宿主安装锁。安装中断后可用同一版本重试。准备中的下载位于 `.chrono-harness/distribution-work/` 的专用目录，宿主的维护执行者可调用 `chrono-distribution maintain --host-root . --keep-seconds 86400`，单位为秒。需要保留的原件应在窗口内转存，读取期间可对专用目录持共享锁。命令在 stdout 返回本轮清理的目录数。发布中断或替换失败时应先检查原有目的地和恢复目录中的备份。旧版本留下的锁与未登记的目录需要按其原操作核实归属。
