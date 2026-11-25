@@ -19,6 +19,40 @@ fn expect(ok: bool)
     if !ok { panic!(); }
 }
 
+/// One field at a time and simultaneous failures exercise both value and precedence.
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn platform_assembly_preserves_source_and_first_error() {
+    use policy::{admit_assembly_source, AssemblyError::*, AssemblySource};
+    let v1 = "v1".to_string();
+    let v2 = "v2".to_string();
+    let c1 = "c1".to_string();
+    let c2 = "c2".to_string();
+    let t1 = "t1".to_string();
+    let t2 = "t2".to_string();
+    proof {
+        reveal_strlit("v1");
+        reveal_strlit("v2");
+        assert(v1@[1] != v2@[1]);
+        reveal_strlit("c1");
+        reveal_strlit("c2");
+        assert(c1@[1] != c2@[1]);
+        reveal_strlit("t1");
+        reveal_strlit("t2");
+        assert(t1@[1] != t2@[1]);
+    }
+    let origin = AssemblySource { version: &v1, commit: &c1, tree: &t1 };
+    let version = AssemblySource { version: &v2, commit: &c1, tree: &t1 };
+    let commit = AssemblySource { version: &v1, commit: &c2, tree: &t1 };
+    let tree = AssemblySource { version: &v1, commit: &c1, tree: &t2 };
+    expect(admit_assembly_source(None, None, origin).is_ok());
+    expect(admit_assembly_source(Some(&v1), Some(origin), origin).is_ok());
+    expect(matches!(admit_assembly_source(Some(&v2), None, origin), Err(PromotionVersion)));
+    expect(matches!(admit_assembly_source(None, Some(origin), version), Err(DifferentSource)));
+    expect(matches!(admit_assembly_source(None, Some(origin), commit), Err(DifferentSource)));
+    expect(matches!(admit_assembly_source(Some(&v1), Some(origin), tree), Err(DifferentSource)));
+    expect(matches!(admit_assembly_source(Some(&v2), Some(origin), tree), Err(PromotionVersion)));
+}
+
 /// Independent consequences for a selected name missing twice, two distinct
 /// unknown names, and a single available member with its exact lock destination.
 proof fn selection_first_failure_and_exact_destination(
