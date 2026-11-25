@@ -232,6 +232,42 @@ pub fn matches_observed_asset(
     declared_size == observed_size && declared_digest.eq(observed_digest)
 }
 
+/// The three manifest fields that must match across a release's platforms.
+#[derive(Clone, Copy)]
+pub struct AssemblySource<'a> {
+    pub version: &'a String,
+    pub commit: &'a String,
+    pub tree: &'a String,
+}
+
+pub enum AssemblyError { PromotionVersion, DifferentSource }
+
+pub fn admit_assembly_source(
+    requested: Option<&String>, first: Option<AssemblySource>, input: AssemblySource,
+) -> (out: Result<(), AssemblyError>)
+    ensures
+        match requested {
+            Some(version) => (out matches Err(AssemblyError::PromotionVersion)) == (version@ != input.version@),
+            None => !(out matches Err(AssemblyError::PromotionVersion)),
+        },
+        !(out matches Err(AssemblyError::PromotionVersion)) ==> match first {
+            None => out.is_ok(),
+            Some(source) => out.is_ok() == (
+                source.version@ == input.version@ && source.commit@ == input.commit@ && source.tree@ == input.tree@
+            ),
+        },
+{
+    if let Some(version) = requested {
+        if !version.eq(input.version) { return Err(AssemblyError::PromotionVersion); }
+    }
+    if let Some(source) = first {
+        if !source.version.eq(input.version) || !source.commit.eq(input.commit) || !source.tree.eq(input.tree) {
+            return Err(AssemblyError::DifferentSource);
+        }
+    }
+    Ok(())
+}
+
 pub open spec fn member_byte(b: u8) -> bool {
     b != 0 && b != 13 && b != 10 && b != 92
 }

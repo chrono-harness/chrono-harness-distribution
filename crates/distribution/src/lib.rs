@@ -36,6 +36,16 @@ pub struct Release {
     #[serde_as(deserialize_as = "MapPreventDuplicates<_, MapPreventDuplicates<_, _>>")]
     pub platforms: BTreeMap<String, BTreeMap<String, Asset>>,
 }
+impl Release {
+    fn assembly_source(&self) -> asset_identity::AssemblySource<'_> {
+        asset_identity::AssemblySource {
+            version: &self.version,
+            commit: &self.source_commit,
+            tree: &self.source_tree,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum Source {
@@ -346,7 +356,7 @@ fn assemble(
     inputs: &[PathBuf],
     out: &Path,
     origin: Source,
-    promotion: Option<(&str, &str)>,
+    promotion: Option<(&String, &String)>,
 ) -> Result<Value> {
     source(&origin)?;
     if let Some((from, to)) = promotion {
@@ -366,27 +376,22 @@ fn assemble(
     for dir in inputs {
         let r: Release = read(&dir.join("release.json"))?;
         release(&r)?;
-        if promotion.is_some_and(|(from, _)| from != r.version) {
-            return Err("promotion input version differs".into());
-        }
-        if let Some(old) = &combined {
-            if (
-                old.version.as_str(),
-                old.source_commit.as_str(),
-                old.source_tree.as_str(),
-            ) != (
-                r.version.as_str(),
-                r.source_commit.as_str(),
-                r.source_tree.as_str(),
-            ) {
-                return Err("platform source/version mismatch".into());
-            }
-        } else {
-            let mut first = r.clone();
-            first.platforms.clear();
-            combined = Some(first);
-        }
-        let c = combined.as_mut().unwrap();
+        asset_identity::admit_assembly_source(
+            promotion.map(|(from, _)| from),
+            combined.as_ref().map(Release::assembly_source),
+            r.assembly_source(),
+        )
+        .map_err(|error| match error {
+            asset_identity::AssemblyError::PromotionVersion => "promotion input version differs",
+            asset_identity::AssemblyError::DifferentSource => "platform source/version mismatch",
+        })?;
+        let c = combined.get_or_insert_with(|| Release {
+            schema: r.schema.clone(),
+            version: r.version.clone(),
+            source_commit: r.source_commit.clone(),
+            source_tree: r.source_tree.clone(),
+            platforms: BTreeMap::new(),
+        });
         for (p, members) in r.platforms {
             if c.platforms.contains_key(&p) {
                 return Err(format!("duplicate platform: {p}"));
@@ -803,7 +808,7 @@ pub fn run(args: &[String]) -> Result<Value> {
         "assemble" => {
             let promotion = match (values.get("--from-version"), values.get("--version")) {
                 (None, None) => None,
-                (Some(from), Some(to)) => Some((from[0].as_str(), to[0].as_str())),
+                (Some(from), Some(to)) => Some((&from[0], &to[0])),
                 _ => return Err("--from-version and --version must be supplied together".into()),
             };
             assemble(
