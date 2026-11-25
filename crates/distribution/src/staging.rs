@@ -1,5 +1,5 @@
 //! Lifecycle of the native installer's own staging area.
-use super::{Result, member_path};
+use super::{Result, asset_identity, member_path};
 use std::{
     fs::{self, File},
     io::{self, ErrorKind},
@@ -15,7 +15,14 @@ const PREPARED: &str = ".prepared";
 const PUBLISHING: &str = ".publishing";
 
 fn same_file(left: &fs::Metadata, right: &fs::Metadata) -> bool {
-    left.is_file() && right.is_file() && left.dev() == right.dev() && left.ino() == right.ino()
+    asset_identity::same_install_file(
+        left.is_file(),
+        left.dev(),
+        left.ino(),
+        right.is_file(),
+        right.dev(),
+        right.ino(),
+    )
 }
 
 pub(crate) struct Guard {
@@ -124,10 +131,13 @@ impl Stage {
 fn discard(path: &Path, gate: &Path, keep: Duration) -> io::Result<bool> {
     let meta = fs::symlink_metadata(path)?;
     if !meta.is_dir()
-        || !meta
-            .modified()?
-            .elapsed()
-            .is_ok_and(|elapsed| elapsed >= keep)
+        || !asset_identity::install_stage_expired(
+            keep.as_secs(),
+            meta.modified()?
+                .elapsed()
+                .ok()
+                .map(|elapsed| elapsed.as_secs()),
+        )
     {
         return Ok(false);
     }
