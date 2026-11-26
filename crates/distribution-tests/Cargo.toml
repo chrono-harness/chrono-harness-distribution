@@ -6,7 +6,7 @@ publish = false
 autotests = false
 
 [dependencies]
-verus_builtin_macros = "=0.0.0-2026-04-20-1748"
+verus_builtin_macros = "=0.0.0-2026-11-22-0344"
 shlex = "=2.0.1"
 tempfile = "3"
 serde = { version = "1", features = ["derive"] }
