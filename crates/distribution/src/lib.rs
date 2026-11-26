@@ -551,16 +551,16 @@ mod native {
             if let Err(error) = action {
                 let mut recovery = Vec::new();
                 for (to, backup) in applied.into_iter().rev() {
-                    if to.exists()
-                        && let Err(e) = fs::remove_file(&to)
-                    {
-                        recovery.push(format!("{}: {e}", to.display()));
-                        continue;
+                    if to.exists() {
+                        if let Err(e) = fs::remove_file(&to) {
+                            recovery.push(format!("{}: {e}", to.display()));
+                            continue;
+                        }
                     }
-                    if let Some(saved) = backup
-                        && let Err(e) = fs::rename(&saved, &to)
-                    {
-                        recovery.push(format!("{} -> {}: {e}", saved.display(), to.display()));
+                    if let Some(saved) = backup {
+                        if let Err(e) = fs::rename(&saved, &to) {
+                            recovery.push(format!("{} -> {}: {e}", saved.display(), to.display()));
+                        }
                     }
                 }
                 return Err(format!("{error}; rollback errors: {recovery:?}"));
