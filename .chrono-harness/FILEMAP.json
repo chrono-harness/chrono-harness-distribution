@@ -318,14 +318,32 @@
       "owner": "host",
       "surface": "product",
       "cost": "unmeasured",
-      "edges": []
+      "edges": [],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/distribution-tests/tests/asset_identity.rs",
+            "operation": "verify.distribution-asset-identity-tests"
+          }
+        ]
+      }
     },
     {
       "path": ".github/workflows/issue-roadmap.yml",
       "owner": "host",
       "surface": "product",
       "cost": "unmeasured",
-      "edges": []
+      "edges": [],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/distribution-tests/tests/asset_identity.rs",
+            "operation": "verify.distribution-asset-identity-tests"
+          }
+        ]
+      }
     },
     {
       "path": ".github/workflows/check.yml",
@@ -783,7 +801,16 @@
           "kind": "test-execution",
           "to": "test:distribution-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/distribution-tests/tests/asset_identity.rs",
+            "operation": "verify.distribution-asset-identity-tests"
+          }
+        ]
+      }
     },
     {
       "path": ".config/mise/conf.d/.gitignore",
