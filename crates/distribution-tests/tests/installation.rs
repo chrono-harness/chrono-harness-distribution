@@ -12,7 +12,7 @@ use tempfile::{TempDir, tempdir};
 
 fn file_identity(path: &Path) -> std::io::Result<(String, u64)> {
     let bytes = fs::read(path)?;
-    Ok((format!("{:x}", Sha256::digest(&bytes)), bytes.len() as u64))
+    Ok((hex::encode(Sha256::digest(&bytes)), bytes.len() as u64))
 }
 
 // The interpreter mock accepts only the fixed generated-template domain.

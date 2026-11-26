@@ -389,7 +389,7 @@ fn measured_asset_requires_both_digest_and_size() {
 #[test]
 fn installed_roadmap_and_setup_match_the_rendered_host() {
     use sha2::{Digest, Sha256};
-    let sha256 = |bytes: &[u8]| format!("{:x}", Sha256::digest(bytes));
+    let sha256 = |bytes: &[u8]| hex::encode(Sha256::digest(bytes));
     let (roadmap, workflow, installer) = deployed_host_inputs();
     assert!(matches_host_template(
         &sha256(roadmap.as_bytes()),
