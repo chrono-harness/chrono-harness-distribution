@@ -12,7 +12,22 @@ use vstd::prelude::*;
 #[cfg(verus_keep_ghost)]
 use vstd::vpanic as panic;
 
+use vstd::contrib::exec_spec::ExecSpecEq;
+
 verus! {
+fn deployed_host_inputs() -> (&'static str, &'static str, &'static str) {
+    (include_str!("../../../.github/roadmap.cjs"),
+     include_str!("../../../.github/workflows/issue-roadmap.yml"),
+     include_str!("../../../.chrono-harness/install-tools.sh"))
+}
+
+fn matches_host_template(roadmap: &str, workflow: &str, installer: &str) -> (matched: bool)
+    ensures matched == (roadmap@ == "5824ea576bd25a792c76e976dc2dcec1c7eb684f6a3a9de9919220a546b61cf9"@ && workflow@ == "47fe8e13ad7ade04ac0882ea76eda196256b71b24f9d7ebd0a1b3322309bb9eb"@ && installer@ == "463052d115cab6d117f83b7546ee3c9481f42ab210c4347833668f84eb6d1941"@),
+{
+    <&str>::exec_eq(roadmap, "5824ea576bd25a792c76e976dc2dcec1c7eb684f6a3a9de9919220a546b61cf9") && <&str>::exec_eq(workflow, "47fe8e13ad7ade04ac0882ea76eda196256b71b24f9d7ebd0a1b3322309bb9eb")
+        && <&str>::exec_eq(installer, "463052d115cab6d117f83b7546ee3c9481f42ab210c4347833668f84eb6d1941")
+}
+
 fn expect(ok: bool)
     requires ok,
 {
@@ -297,4 +312,17 @@ fn measured_asset_requires_both_digest_and_size() {
     expect(!policy::matches_observed_asset(&original, 10, &different, 11));
 }
 
+}
+
+#[cfg(not(verus_keep_ghost))]
+#[test]
+fn installed_roadmap_and_setup_match_the_rendered_host() {
+    use sha2::{Digest, Sha256};
+    let sha256 = |bytes: &[u8]| format!("{:x}", Sha256::digest(bytes));
+    let (roadmap, workflow, installer) = deployed_host_inputs();
+    assert!(matches_host_template(
+        &sha256(roadmap.as_bytes()),
+        &sha256(workflow.as_bytes()),
+        &sha256(installer.as_bytes()),
+    ));
 }
