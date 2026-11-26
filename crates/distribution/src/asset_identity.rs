@@ -6,6 +6,10 @@ use verus_builtin_macros::verus;
 use vstd::prelude::*;
 
 #[cfg(verus_keep_ghost)]
+#[path = "main.rs"]
+pub mod cli;
+
+#[cfg(verus_keep_ghost)]
 #[path = "staging.rs"]
 mod staging;
 #[cfg(not(verus_keep_ghost))]
