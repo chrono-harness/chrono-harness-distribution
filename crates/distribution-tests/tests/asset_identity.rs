@@ -12,6 +12,13 @@ use vstd::prelude::*;
 #[cfg(verus_keep_ghost)]
 use vstd::vpanic as panic;
 
+#[cfg(verus_keep_ghost)]
+use policy::cli;
+#[cfg(not(verus_keep_ghost))]
+#[allow(dead_code)]
+#[path = "../../distribution/src/main.rs"]
+mod cli;
+
 verus! {
 fn deployed_host_inputs() -> (&'static str, &'static str, &'static str) {
     (include_str!("../../../.github/roadmap.cjs"),
@@ -30,6 +37,49 @@ fn expect(ok: bool)
     requires ok,
 {
     if !ok { panic!(); }
+}
+
+#[cfg(verus_keep_ghost)]
+fn report_observations<R,E,W: cli::ReportOutput<R,E>>(command: Result<R,E>, writer: &mut W) {
+    let ghost start = writer.steps().len() as int;
+    let ghost input = command;
+    let result = cli::publish(command, writer);
+    proof {
+        let events = writer.steps();
+        match input {
+            Err(e) => { assert(events.len() == start && result == Result::<(),E>::Err(e)); }
+            Ok(value) => {
+                assert(start < events.len());
+                match events[start] {
+                    cli::OutputStep::Write(written, response) => {
+                        assert(written == value);
+                        match response {
+                            Err(_) => { assert(events.len() == start + 1 && result == response); }
+                            Ok(()) => {
+                                assert(events.len() == start + 2);
+                                assert(events[start + 1] == cli::OutputStep::<R,E>::Flush(result));
+                            }
+                        }
+                    }
+                    cli::OutputStep::Flush(_) => { assert(false); }
+                }
+            }
+        }
+    }
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn cli_arguments_and_exit_preserve_the_actual_error() {
+    expect(matches!(cli::argument::<u8,u8>(0, Ok(7)), Ok(None)));
+    expect(matches!(cli::argument::<u8,u8>(3, Ok(7)), Ok(Some(7))));
+    expect(matches!(cli::argument::<u8,u8>(0, Err(9)), Err(0)));
+    expect(matches!(cli::argument::<u8,u8>(3, Err(9)), Err(3)));
+    let (code, detail) = cli::terminal::<u8>(Ok(()));
+    expect(code == 0 && detail.is_none());
+    let (code, detail) = cli::terminal::<u8>(Err(cli::Failure::Argument(3)));
+    expect(code == 2 && match detail { Some(cli::Failure::Argument(i)) => i == 3, _ => false });
+    let (code, detail) = cli::terminal(Err(cli::Failure::Distribution(9u8)));
+    expect(code == 1 && match detail { Some(cli::Failure::Distribution(e)) => e == 9, _ => false });
 }
 
 #[cfg_attr(not(verus_keep_ghost), test)]
@@ -346,4 +396,40 @@ fn installed_roadmap_and_setup_match_the_rendered_host() {
         &sha256(workflow.as_bytes()),
         &sha256(installer.as_bytes()),
     ));
+}
+
+#[cfg(not(verus_keep_ghost))]
+#[test]
+fn report_preserves_business_write_and_flush_failures() {
+    #[derive(Default)]
+    struct Writer {
+        write_error: Option<u8>,
+        flush_error: Option<u8>,
+        reports: Vec<u8>,
+        flushes: usize,
+    }
+    impl cli::ReportOutput<u8, u8> for Writer {
+        fn write(&mut self, value: u8) -> Result<(), u8> {
+            self.reports.push(value);
+            self.write_error.map_or(Ok(()), Err)
+        }
+        fn flush(&mut self) -> Result<(), u8> {
+            self.flushes += 1;
+            self.flush_error.map_or(Ok(()), Err)
+        }
+    }
+    for (command, write_error, flush_error, result, reports, flushes) in [
+        (Err(8), Some(3), Some(4), Err(8), vec![], 0),
+        (Ok(7), Some(3), Some(4), Err(3), vec![7], 0),
+        (Ok(7), None, Some(4), Err(4), vec![7], 1),
+        (Ok(7), None, None, Ok(()), vec![7], 1),
+    ] {
+        let mut writer = Writer {
+            write_error,
+            flush_error,
+            ..Writer::default()
+        };
+        assert_eq!(cli::publish(command, &mut writer), result);
+        assert_eq!((writer.reports, writer.flushes), (reports, flushes));
+    }
 }
