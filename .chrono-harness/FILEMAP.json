@@ -622,7 +622,16 @@
           "kind": "test-execution",
           "to": "test:distribution-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/distribution-tests/tests/asset_identity.rs",
+            "operation": "verify.distribution-asset-identity-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/distribution-tests/tests/support/bootstrap.rs",

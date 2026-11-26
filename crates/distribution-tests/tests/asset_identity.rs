@@ -13,6 +13,10 @@ use vstd::prelude::*;
 use vstd::vpanic as panic;
 
 #[cfg(verus_keep_ghost)]
+#[path = "installation.rs"]
+mod installation;
+
+#[cfg(verus_keep_ghost)]
 use policy::cli;
 #[cfg(not(verus_keep_ghost))]
 #[allow(dead_code)]
