@@ -12,7 +12,6 @@ use vstd::prelude::*;
 #[cfg(verus_keep_ghost)]
 use vstd::vpanic as panic;
 
-use vstd::contrib::exec_spec::ExecSpecEq;
 
 verus! {
 fn deployed_host_inputs() -> (&'static str, &'static str, &'static str) {
@@ -21,11 +20,11 @@ fn deployed_host_inputs() -> (&'static str, &'static str, &'static str) {
      include_str!("../../../.chrono-harness/install-tools.sh"))
 }
 
-fn matches_host_template(roadmap: &str, workflow: &str, installer: &str) -> (matched: bool)
+fn matches_host_template(roadmap: &String, workflow: &String, installer: &String) -> (matched: bool)
     ensures matched == (roadmap@ == "5824ea576bd25a792c76e976dc2dcec1c7eb684f6a3a9de9919220a546b61cf9"@ && workflow@ == "47fe8e13ad7ade04ac0882ea76eda196256b71b24f9d7ebd0a1b3322309bb9eb"@ && installer@ == "463052d115cab6d117f83b7546ee3c9481f42ab210c4347833668f84eb6d1941"@),
 {
-    <&str>::exec_eq(roadmap, "5824ea576bd25a792c76e976dc2dcec1c7eb684f6a3a9de9919220a546b61cf9") && <&str>::exec_eq(workflow, "47fe8e13ad7ade04ac0882ea76eda196256b71b24f9d7ebd0a1b3322309bb9eb")
-        && <&str>::exec_eq(installer, "463052d115cab6d117f83b7546ee3c9481f42ab210c4347833668f84eb6d1941")
+    roadmap.eq(&"5824ea576bd25a792c76e976dc2dcec1c7eb684f6a3a9de9919220a546b61cf9".to_string()) && workflow.eq(&"47fe8e13ad7ade04ac0882ea76eda196256b71b24f9d7ebd0a1b3322309bb9eb".to_string())
+        && installer.eq(&"463052d115cab6d117f83b7546ee3c9481f42ab210c4347833668f84eb6d1941".to_string())
 }
 
 fn expect(ok: bool)
