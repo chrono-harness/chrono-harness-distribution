@@ -27,9 +27,9 @@ fn deployed_host_inputs() -> (&'static str, &'static str, &'static str) {
 }
 
 fn matches_host_template(roadmap: &String, workflow: &String, installer: &String) -> (matched: bool)
-    ensures matched == (roadmap@ == "5824ea576bd25a792c76e976dc2dcec1c7eb684f6a3a9de9919220a546b61cf9"@ && workflow@ == "47fe8e13ad7ade04ac0882ea76eda196256b71b24f9d7ebd0a1b3322309bb9eb"@ && installer@ == "463052d115cab6d117f83b7546ee3c9481f42ab210c4347833668f84eb6d1941"@),
+    ensures matched == (roadmap@ == "5824ea576bd25a792c76e976dc2dcec1c7eb684f6a3a9de9919220a546b61cf9"@ && workflow@ == "3c16c58a0c8e13719f2bfa2a35538bce6865bc9c180ba61aa32f5c11554733fa"@ && installer@ == "463052d115cab6d117f83b7546ee3c9481f42ab210c4347833668f84eb6d1941"@),
 {
-    roadmap.eq(&"5824ea576bd25a792c76e976dc2dcec1c7eb684f6a3a9de9919220a546b61cf9".to_string()) && workflow.eq(&"47fe8e13ad7ade04ac0882ea76eda196256b71b24f9d7ebd0a1b3322309bb9eb".to_string())
+    roadmap.eq(&"5824ea576bd25a792c76e976dc2dcec1c7eb684f6a3a9de9919220a546b61cf9".to_string()) && workflow.eq(&"3c16c58a0c8e13719f2bfa2a35538bce6865bc9c180ba61aa32f5c11554733fa".to_string())
         && installer.eq(&"463052d115cab6d117f83b7546ee3c9481f42ab210c4347833668f84eb6d1941".to_string())
 }
 
