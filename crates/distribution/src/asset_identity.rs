@@ -251,6 +251,44 @@ pub fn matches_observed_asset(
     declared_size == observed_size && declared_digest.eq(observed_digest)
 }
 
+#[derive(Clone, Copy)]
+pub struct InstallerIdentity<'a> {
+    pub file: &'a String,
+    pub digest: &'a String,
+    pub size: u64,
+}
+
+pub enum InstallError { Version, Platform, Installer }
+
+/// Return the selected platform's original member table only after matching the adopted installer.
+pub fn admit_install_platform<T>(
+    locked_version: &String,
+    release_version: &String,
+    locked: InstallerIdentity,
+    platform: Option<(T, Option<InstallerIdentity>)>,
+) -> (out: Result<T, InstallError>)
+    ensures
+        match platform {
+            _ if locked_version@ != release_version@ => out matches Err(InstallError::Version),
+            None => out matches Err(InstallError::Platform),
+            Some((_, None)) => out matches Err(InstallError::Installer),
+            Some((members, Some(asset))) =>
+                if locked.file@ == asset.file@ && locked.digest@ == asset.digest@ && locked.size == asset.size {
+                    out == Ok::<T, InstallError>(members)
+                } else {
+                    out matches Err(InstallError::Installer)
+                },
+        },
+{
+    if !locked_version.eq(release_version) { return Err(InstallError::Version); }
+    let Some((members, installer)) = platform else { return Err(InstallError::Platform); };
+    let Some(asset) = installer else { return Err(InstallError::Installer); };
+    if !locked.file.eq(asset.file) || !matches_observed_asset(locked.digest, locked.size, asset.digest, asset.size) {
+        return Err(InstallError::Installer);
+    }
+    Ok(members)
+}
+
 /// Each platform supplies the names from its manifest in BTreeMap key order.
 pub fn same_platform_members(first: &[&String], next: &[&String]) -> (same: bool)
     ensures same == (first.len() == next.len()

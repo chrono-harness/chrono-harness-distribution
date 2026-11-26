@@ -76,6 +76,15 @@ mod native {
         pub sha256: String,
         pub size: u64,
     }
+    impl Asset {
+        fn installer_identity(&self) -> asset_identity::InstallerIdentity<'_> {
+            asset_identity::InstallerIdentity {
+                file: &self.file,
+                digest: &self.sha256,
+                size: self.size,
+            }
+        }
+    }
     #[serde_as]
     #[derive(Clone, Debug, Serialize, Deserialize)]
     #[serde(deny_unknown_fields)]
@@ -774,16 +783,25 @@ mod native {
         fetch(&l.source, &l.manifest, &manifest, &stage)?;
         let r: Release = read(&manifest)?;
         release(&r)?;
-        if r.version != l.version {
-            return Err("locked release version mismatch".into());
-        }
-        let tools = r
-            .platforms
-            .get(&p)
-            .ok_or("release lacks current platform")?;
-        if tools.get("chrono-distribution") != Some(bootstrap) {
-            return Err("locked installer identity mismatch".into());
-        }
+        let selected = r.platforms.get(&p).map(|members| {
+            (
+                members,
+                members
+                    .get("chrono-distribution")
+                    .map(Asset::installer_identity),
+            )
+        });
+        let tools = asset_identity::admit_install_platform(
+            &l.version,
+            &r.version,
+            bootstrap.installer_identity(),
+            selected,
+        )
+        .map_err(|err| match err {
+            asset_identity::InstallError::Version => "locked release version mismatch",
+            asset_identity::InstallError::Platform => "release lacks current platform",
+            asset_identity::InstallError::Installer => "locked installer identity mismatch",
+        })?;
         let mut entries = Vec::new();
         let mut installed = Vec::new();
         for (n, dst) in &l.install {

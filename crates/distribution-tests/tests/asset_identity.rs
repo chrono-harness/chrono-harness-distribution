@@ -73,6 +73,40 @@ fn report_observations<R,E,W: cli::ReportOutput<R,E>>(command: Result<R,E>, writ
 }
 
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn locked_installer_requires_the_selected_platform_and_exact_asset() {
+    use policy::{admit_install_platform, InstallerIdentity, InstallError};
+    let version = "v1".to_string();
+    let other_version = "v2".to_string();
+    let file = "chrono-distribution-test".to_string();
+    let other_file = "different-test".to_string();
+    let digest = "a".to_string();
+    let other_digest = "b".to_string();
+    proof {
+        reveal_strlit("v1"); reveal_strlit("v2");
+        reveal_strlit("chrono-distribution-test"); reveal_strlit("different-test");
+        reveal_strlit("a"); reveal_strlit("b");
+        assert(version@[1] != other_version@[1]);
+        assert(file@[0] != other_file@[0]);
+        assert(digest@[0] != other_digest@[0]);
+    }
+    let locked = InstallerIdentity { file: &file, digest: &digest, size: 4 };
+    let observed = Some((7u8, Some(locked)));
+    expect(matches!(admit_install_platform(&version, &version, locked, observed), Ok(7)));
+    expect(matches!(admit_install_platform::<u8>(&version, &other_version, locked, None),
+        Err(InstallError::Version)));
+    expect(matches!(admit_install_platform::<u8>(&version, &version, locked, None),
+        Err(InstallError::Platform)));
+    expect(matches!(admit_install_platform(&version, &version, locked, Some((7u8, None))),
+        Err(InstallError::Installer)));
+    let renamed = InstallerIdentity { file: &other_file, digest: &digest, size: 4 };
+    let changed = InstallerIdentity { file: &file, digest: &other_digest, size: 4 };
+    let resized = InstallerIdentity { file: &file, digest: &digest, size: 5 };
+    expect(matches!(admit_install_platform(&version, &version, renamed, observed), Err(InstallError::Installer)));
+    expect(matches!(admit_install_platform(&version, &version, changed, observed), Err(InstallError::Installer)));
+    expect(matches!(admit_install_platform(&version, &version, resized, observed), Err(InstallError::Installer)));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn cli_arguments_and_exit_preserve_the_actual_error() {
     expect(matches!(cli::argument::<u8,u8>(0, Ok(7)), Ok(None)));
     expect(matches!(cli::argument::<u8,u8>(3, Ok(7)), Ok(Some(7))));
