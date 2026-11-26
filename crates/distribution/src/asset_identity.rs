@@ -12,6 +12,14 @@ mod staging;
 use crate::staging;
 pub use staging::{removable_stage_member, valid_stage_id};
 
+#[cfg(verus_keep_ghost)]
+#[path = "lib.rs"]
+mod release;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::valid_release_header;
+#[cfg(verus_keep_ghost)]
+pub use release::valid_release_header;
+
 verus! {
 
 /// Identity of the regular inode reported for the operation marker and this host's gate.

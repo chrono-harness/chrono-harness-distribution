@@ -33,6 +33,29 @@ fn expect(ok: bool)
 }
 
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn release_header_rejects_each_invalid_field() {
+    let schema = "chrono-release/v1".as_bytes();
+    let id = [97u8; 40];
+    let short = [97u8; 39];
+    let long = [48u8; 41];
+    let mut upper = id;
+    upper[39] = 70;
+    proof {
+        reveal_strlit("chrono-release/v1");
+        reveal_strlit("");
+        assert(!policy::hex_digit(upper@[39]));
+        assert(!(forall|i: int| 0 <= i < upper.len() ==> policy::hex_digit(#[trigger] upper[i])));
+    }
+    expect(policy::valid_release_header(schema, &id, &id, 1));
+    expect(!policy::valid_release_header("".as_bytes(), &id, &id, 1));
+    expect(!policy::valid_release_header(schema, &short, &id, 1));
+    expect(!policy::valid_release_header(schema, &upper, &id, 1));
+    expect(!policy::valid_release_header(schema, &id, &long, 1));
+    expect(!policy::valid_release_header(schema, &id, &upper, 1));
+    expect(!policy::valid_release_header(schema, &id, &id, 0));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn all_platforms_must_publish_the_same_member_names() {
     let a = "a".to_string();
     let b = "b".to_string();

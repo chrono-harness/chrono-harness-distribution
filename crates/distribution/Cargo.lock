@@ -83,7 +83,7 @@ dependencies = [
 
 [[package]]
 name = "chrono-distribution"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "rustix",
  "serde",
