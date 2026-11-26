@@ -19,6 +19,7 @@
           "operation": "verify.distribution-asset-identity",
           "tool": "verus",
           "argv": [
+            "--edition=2024",
             "--crate-type=lib",
             "--no-cheating",
             "--no-external-by-default",
@@ -52,6 +53,7 @@
           "operation": "verify.distribution-asset-identity-tests",
           "tool": "verus",
           "argv": [
+            "--edition=2024",
             "--crate-type=lib",
             "--no-cheating",
             "--no-external-by-default",

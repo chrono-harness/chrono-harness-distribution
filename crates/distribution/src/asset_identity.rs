@@ -3,7 +3,7 @@
 #[cfg(not(verus_keep_ghost))]
 use verus_builtin_macros::verus;
 #[cfg(verus_keep_ghost)]
-use vstd::{prelude::*, string::StringSliceAdditionalSpecFns};
+use vstd::prelude::*;
 
 #[cfg(verus_keep_ghost)]
 #[path = "staging.rs"]
@@ -11,6 +11,14 @@ mod staging;
 #[cfg(not(verus_keep_ghost))]
 use crate::staging;
 pub use staging::{removable_stage_member, valid_stage_id};
+
+#[cfg(verus_keep_ghost)]
+#[path = "lib.rs"]
+mod release;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::valid_release_header;
+#[cfg(verus_keep_ghost)]
+pub use release::valid_release_header;
 
 verus! {
 
@@ -221,33 +229,6 @@ pub fn valid_hex(s: &[u8], length: usize) -> (valid: bool)
         i += 1;
     }
     true
-}
-
-/// Admission of a decoded release header before validating its platform members.
-pub fn valid_release_header(schema: &[u8], commit: &[u8], tree: &[u8], platform_count: usize)
-    -> (valid: bool)
-    ensures valid == (
-        schema@ == "chrono-release/v1".spec_bytes() && platform_count > 0
-        && commit.len() == 40
-        && (forall|i: int| 0 <= i < commit.len() ==> hex_digit(#[trigger] commit[i]))
-        && tree.len() == 40
-        && (forall|i: int| 0 <= i < tree.len() ==> hex_digit(#[trigger] tree[i]))
-    ),
-{
-    let expected = "chrono-release/v1".as_bytes();
-    if schema.len() != expected.len() { return false; }
-    let mut i = 0;
-    while i < expected.len()
-        invariant i <= expected.len(), schema.len() == expected.len(),
-            expected@ == "chrono-release/v1".spec_bytes(),
-            forall|j: int| 0 <= j < i ==> schema[j] == #[trigger] expected[j],
-        decreases expected.len() - i,
-    {
-        if schema[i] != expected[i] { return false; }
-        i += 1;
-    }
-    assert(schema@ =~= expected@);
-    valid_hex(commit, 40) && valid_hex(tree, 40) && platform_count > 0
 }
 
 pub fn valid_asset_identity(digest: &[u8], size: u64) -> (valid: bool)
