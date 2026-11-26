@@ -1,5 +1,57 @@
 //! Lifecycle of the native installer's own staging area.
+#![allow(unexpected_cfgs)]
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+pub open spec fn suffix_byte(b: u8, letters: bool) -> bool {
+    48 <= b <= 57 || letters && (65 <= b <= 90 || 97 <= b <= 122)
+}
+
+fn valid_suffix(s: &[u8], letters: bool) -> (ok: bool)
+    ensures ok == (forall|i: int| 0 <= i < s.len() ==> suffix_byte(#[trigger] s@[i], letters)),
+{
+    let mut i = 0;
+    while i < s.len()
+        invariant i <= s.len(),
+            forall|j: int| 0 <= j < i ==> suffix_byte(#[trigger] s@[j], letters),
+        decreases s.len() - i,
+    {
+        let b = s[i];
+        let digit = 48 <= b && b <= 57;
+        let letter = (65 <= b && b <= 90) || (97 <= b && b <= 122);
+        if !(digit || letters && letter) { return false; }
+        i += 1;
+    }
+    true
+}
+
+pub fn valid_stage_id(id: &[u8]) -> (ok: bool)
+    ensures ok == (id.len() == 16
+        && forall|i: int| 0 <= i < id.len() ==> suffix_byte(#[trigger] id@[i], true)),
+{
+    id.len() == 16 && valid_suffix(id, true)
+}
+
+pub fn removable_stage_member(regular: bool, fixed: bool, number: Option<&[u8]>) -> (ok: bool)
+    ensures ok == (regular && (fixed || match number {
+        None => false,
+        Some(s) => s.len() > 0 && forall|i: int| 0 <= i < s.len()
+            ==> suffix_byte(#[trigger] s@[i], false),
+    })),
+{
+    regular && (fixed || match number {
+        None => false,
+        Some(digits) => !digits.is_empty() && valid_suffix(digits, false),
+    })
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 use super::{Result, asset_identity, member_path};
+#[cfg(not(verus_keep_ghost))]
 use std::{
     fs::{self, File},
     io::{self, ErrorKind},
@@ -9,11 +61,16 @@ use std::{
     time::Duration,
 };
 
+#[cfg(not(verus_keep_ghost))]
 const WORK: &str = ".chrono-harness/distribution-work";
+#[cfg(not(verus_keep_ghost))]
 const LOCK: &str = ".chrono-harness/.distribution-lock";
+#[cfg(not(verus_keep_ghost))]
 const PREPARED: &str = ".prepared";
+#[cfg(not(verus_keep_ghost))]
 const PUBLISHING: &str = ".publishing";
 
+#[cfg(not(verus_keep_ghost))]
 fn same_file(left: &fs::Metadata, right: &fs::Metadata) -> bool {
     asset_identity::same_install_file(
         left.is_file(),
@@ -25,6 +82,7 @@ fn same_file(left: &fs::Metadata, right: &fs::Metadata) -> bool {
     )
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) struct Guard {
     area: PathBuf,
     gate: WriterLock,
@@ -33,14 +91,17 @@ pub(crate) struct Guard {
 
 /// End the writer's lock at the operation boundary. A concurrent fork can
 /// temporarily share this open file description until its exec closes it.
+#[cfg(not(verus_keep_ghost))]
 struct WriterLock(File);
 
+#[cfg(not(verus_keep_ghost))]
 impl Drop for WriterLock {
     fn drop(&mut self) {
         let _ = self.0.unlock();
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 impl Guard {
     pub(crate) fn acquire(root: &Path) -> Result<Self> {
         let marker = member_path(root, LOCK)?;
@@ -89,21 +150,25 @@ impl Guard {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 impl Drop for Guard {
     fn drop(&mut self) {
-        if let (Ok(gate), Ok(marker)) = (self.gate.0.metadata(), fs::symlink_metadata(&self.marker))
-            && same_file(&gate, &marker)
-        {
-            let _ = fs::remove_file(&self.marker);
+        match (self.gate.0.metadata(), fs::symlink_metadata(&self.marker)) {
+            (Ok(gate), Ok(marker)) if same_file(&gate, &marker) => {
+                let _ = fs::remove_file(&self.marker);
+            }
+            _ => {}
         }
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) struct Stage {
     path: PathBuf,
     reader: File,
 }
 
+#[cfg(not(verus_keep_ghost))]
 impl Stage {
     pub(crate) fn path(&self) -> &Path {
         &self.path
@@ -139,6 +204,7 @@ impl Stage {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn discard(path: &Path, gate: &Path, keep: Duration) -> io::Result<bool> {
     let meta = fs::symlink_metadata(path)?;
     if !meta.is_dir()
@@ -175,13 +241,11 @@ fn discard(path: &Path, gate: &Path, keep: Duration) -> io::Result<bool> {
         }
         let name = item.file_name();
         let bytes = name.as_encoded_bytes();
-        let numbered = bytes
+        let number = bytes
             .strip_prefix(b"backup-")
-            .or_else(|| bytes.strip_prefix(b"payload-"))
-            .is_some_and(|digits| !digits.is_empty() && digits.iter().all(u8::is_ascii_digit));
-        if !item.file_type()?.is_file()
-            || !(numbered || matches!(bytes, b"release.json" | b"lock" | b"launcher"))
-        {
+            .or_else(|| bytes.strip_prefix(b"payload-"));
+        let fixed = matches!(bytes, b"release.json" | b"lock" | b"launcher");
+        if !removable_stage_member(item.file_type()?.is_file(), fixed, number) {
             return Ok(false);
         }
         files.push(item.path());
@@ -194,6 +258,7 @@ fn discard(path: &Path, gate: &Path, keep: Duration) -> io::Result<bool> {
     Ok(true)
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn maintain(root: &Path, seconds: u64) -> Result<usize> {
     if seconds == 0 {
         return Err("retention must be positive".into());
@@ -218,7 +283,7 @@ pub(crate) fn maintain(root: &Path, seconds: u64) -> Result<usize> {
         if name
             .as_encoded_bytes()
             .strip_prefix(b"stage-")
-            .is_some_and(|id| id.len() == 16 && id.iter().all(u8::is_ascii_alphanumeric))
+            .is_some_and(valid_stage_id)
             && discard(&entry.path(), &gate, Duration::from_secs(seconds))
                 .map_err(|e| e.to_string())?
         {
