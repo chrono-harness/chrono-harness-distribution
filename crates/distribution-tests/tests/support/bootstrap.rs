@@ -39,7 +39,7 @@ mod runtime {
         let domain: serde_json::Value =
             serde_json::from_str(include_str!("../fixtures/bootstrap-domain.json")).unwrap();
         if domain["template_sha256"].as_str()
-            != Some(format!("{:x}", Sha256::digest(TEMPLATE.as_bytes())).as_str())
+            != Some(hex::encode(Sha256::digest(TEMPLATE.as_bytes())).as_str())
         {
             return Err("unregistered launcher template".into());
         }
@@ -108,7 +108,7 @@ mod runtime {
             return Err("missing launcher lock binding".into());
         }
         if domain["argument_cases_sha256"][&declarations["mode"]].as_str()
-            != Some(format!("{:x}", Sha256::digest(arguments.as_bytes())).as_str())
+            != Some(hex::encode(Sha256::digest(arguments.as_bytes())).as_str())
         {
             return Err("unknown launcher argument policy".into());
         }
@@ -150,7 +150,7 @@ mod runtime {
     }
     fn verify(path: &Path, digest: &str, size: u64) -> Result<(), String> {
         let bytes = fs::read(path).map_err(|_| format!("missing file: {}", path.display()))?;
-        if bytes.len() as u64 != size || format!("{:x}", Sha256::digest(&bytes)) != digest {
+        if bytes.len() as u64 != size || hex::encode(Sha256::digest(&bytes)) != digest {
             return Err(format!("integrity mismatch: {}", path.display()));
         }
         Ok(())

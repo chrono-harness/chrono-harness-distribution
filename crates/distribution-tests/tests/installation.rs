@@ -1,6 +1,25 @@
+#![allow(unexpected_cfgs)]
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+/// Expected bytes of fixtures/installer-ok.sh, independently of the packer and hash library.
+fn installer_fixture_identity(digest: &String, size: u64) -> (accepted: bool)
+    ensures accepted == (size == 17 && digest@ == "306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb"@),
+{
+    size == 17 && digest.eq(&"306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb".to_string())
+}
+}
+
+#[cfg(test)]
 use chrono_distribution::{Asset, Release, Source, adopt, install, platform, run};
+#[cfg(test)]
 use serde_json::{Value, json};
+#[cfg(test)]
 use sha2::{Digest, Sha256};
+#[cfg(test)]
 use std::{
     collections::BTreeMap,
     fs,
@@ -8,16 +27,19 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
 };
+#[cfg(test)]
 use tempfile::{TempDir, tempdir};
 
+#[cfg(test)]
 fn file_identity(path: &Path) -> std::io::Result<(String, u64)> {
     let bytes = fs::read(path)?;
-    Ok((format!("{:x}", Sha256::digest(&bytes)), bytes.len() as u64))
+    Ok((hex::encode(Sha256::digest(&bytes)), bytes.len() as u64))
 }
 
 // The interpreter mock accepts only the fixed generated-template domain.
 // Its native effects retain the original command/stream/status assertions;
 // this does not establish real Shell execution correctness.
+#[cfg(test)]
 fn bootstrap_command() -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_distribution-transport-fixture"));
     command
@@ -32,28 +54,34 @@ fn bootstrap_command() -> Command {
         );
     command
 }
+#[cfg(test)]
 fn shell_tools(root: &Path) -> PathBuf {
     let tools = root.join("system-tools");
     fs::create_dir(&tools).unwrap();
     tools
 }
+#[cfg(test)]
 fn shell_environment(command: &mut Command, tools: &Path, downloads: &Path) {
     command.env("PATH", tools).env("TMPDIR", downloads);
 }
+#[cfg(test)]
 fn asset_command(path: PathBuf) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_distribution-transport-fixture"));
     command.arg("asset").arg(path);
     command
 }
 
+#[cfg(test)]
 fn save(path: &Path, v: &Value) {
     fs::write(path, serde_json::to_vec_pretty(v).unwrap()).unwrap();
 }
+#[cfg(test)]
 struct Fixture {
     host: TempDir,
     release: TempDir,
     manifest: PathBuf,
 }
+#[cfg(test)]
 impl Fixture {
     fn new() -> Self {
         let host = tempdir().unwrap();
@@ -476,6 +504,11 @@ fn pack_and_assemble_bind_real_source_and_declared_members() {
     );
     let release: Release =
         serde_json::from_slice(&fs::read(packed.join("release.json")).unwrap()).unwrap();
+    let installer = &release.platforms[&platform()]["chrono-distribution"];
+    assert!(installer_fixture_identity(
+        &installer.sha256,
+        installer.size
+    ));
     assert_eq!(release.source_commit, "a".repeat(40));
     assert_eq!(release.source_tree, "b".repeat(40));
     let combined = out.path().join("combined");
@@ -806,6 +839,7 @@ fn assembly_promotion_preserves_input_bytes_and_requires_the_exact_input_version
     }
 }
 
+#[cfg(test)]
 fn real_installer(f: &Fixture) {
     let installer = Path::new(env!("CARGO_BIN_EXE_chrono-distribution-test-cli"));
     let target = f

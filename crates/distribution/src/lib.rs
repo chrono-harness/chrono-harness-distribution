@@ -164,9 +164,9 @@ mod native {
         if !file.metadata().map_err(|e| e.to_string())?.is_file() {
             return Err(format!("not a regular input file: {}", path.display()));
         }
-        let mut digest = Sha256::new();
+        let mut digest = digest_io::IoWrapper(Sha256::new());
         let size = io::copy(&mut file, &mut digest).map_err(|e| e.to_string())?;
-        Ok((format!("{:x}", digest.finalize()), size))
+        Ok((hex::encode(digest.0.finalize()), size))
     }
 
     struct MemberComponents<'a> {
