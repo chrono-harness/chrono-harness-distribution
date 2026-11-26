@@ -174,11 +174,12 @@ pub fn platform() -> String {
     format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH)
 }
 fn release(r: &Release) -> Result<()> {
-    if r.schema != "chrono-release/v1"
-        || !asset_identity::valid_hex(r.source_commit.as_bytes(), 40)
-        || !asset_identity::valid_hex(r.source_tree.as_bytes(), 40)
-        || r.platforms.is_empty()
-    {
+    if !asset_identity::valid_release_header(
+        r.schema.as_bytes(),
+        r.source_commit.as_bytes(),
+        r.source_tree.as_bytes(),
+        r.platforms.len(),
+    ) {
         return Err("invalid release identity".into());
     }
     name(&r.version)?;
