@@ -5,6 +5,13 @@ use verus_builtin_macros::verus;
 #[cfg(verus_keep_ghost)]
 use vstd::prelude::*;
 
+#[cfg(verus_keep_ghost)]
+#[path = "staging.rs"]
+mod staging;
+#[cfg(not(verus_keep_ghost))]
+use crate::staging;
+pub use staging::{removable_stage_member, valid_stage_id};
+
 verus! {
 
 /// Identity of the regular inode reported for the operation marker and this host's gate.

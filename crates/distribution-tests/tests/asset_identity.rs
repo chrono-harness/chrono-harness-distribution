@@ -244,6 +244,33 @@ fn text_precedes_observation_and_first_failure_wins() {
     expect(matches!(io, Err(MemberError::Io(20))));
 }
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn cleanup_names_require_the_original_stage_and_member_alphabets() {
+    use policy::{valid_stage_id, removable_stage_member};
+    let good = [48u8; 16];
+    expect(valid_stage_id(&good));
+    expect(!valid_stage_id(&[48u8; 15]));
+    expect(!valid_stage_id(&[48u8; 17]));
+    let mut bad = good;
+    bad[15] = 95;
+    let rejected = valid_stage_id(&bad);
+    assert(bad@[15] == 95);
+    expect(!rejected);
+    bad[15] = 255;
+    let rejected = valid_stage_id(&bad);
+    assert(bad@[15] == 255);
+    expect(!rejected);
+    expect(removable_stage_member(true, true, None));
+    expect(!removable_stage_member(false, true, None));
+    expect(!removable_stage_member(true, false, None));
+    expect(!removable_stage_member(true, false, Some(&[])));
+    expect(removable_stage_member(true, false, Some(&[48, 57])));
+    expect(!removable_stage_member(false, false, Some(&[48, 57])));
+    expect(!removable_stage_member(true, false, Some(&[48, 58])));
+    expect(!removable_stage_member(true, false, Some(&[47, 57])));
+    expect(!removable_stage_member(true, false, Some(&[48, 200])));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn install_marker_and_expiry_boundaries() {
     expect(policy::same_install_file(true, 3, 5, true, 3, 5));
     expect(!policy::same_install_file(true, 3, 5, true, 3, 6));
