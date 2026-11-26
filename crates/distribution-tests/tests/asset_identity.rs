@@ -12,7 +12,6 @@ use vstd::prelude::*;
 #[cfg(verus_keep_ghost)]
 use vstd::vpanic as panic;
 
-
 verus! {
 fn deployed_host_inputs() -> (&'static str, &'static str, &'static str) {
     (include_str!("../../../.github/roadmap.cjs"),
