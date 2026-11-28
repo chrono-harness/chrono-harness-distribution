@@ -47,10 +47,196 @@ pub fn removable_stage_member(regular: bool, fixed: bool, number: Option<&[u8]>)
         Some(digits) => !digits.is_empty() && valid_suffix(digits, false),
     })
 }
+
+pub fn compare_adoption(exists: bool, replace: bool) -> (compare: bool)
+    ensures compare == (exists && !replace),
+{
+    exists && !replace
+}
+
+pub fn same_adoption_contents(previous: &[u8], candidate: &[u8]) -> (same: bool)
+    ensures same == (previous@ == candidate@),
+{
+    if previous.len() != candidate.len() { return false; }
+    let mut i = 0;
+    while i < previous.len()
+        invariant previous.len() == candidate.len(), i <= previous.len(),
+            forall|j: int| 0 <= j < i ==> previous[j] == #[trigger] candidate[j],
+        decreases previous.len() - i,
+    {
+        if previous[i] != candidate[i] { return false; }
+        i += 1;
+    }
+    assert(previous@ =~= candidate@);
+    true
+}
+
+/// No mode is available until the existing regular payload passes verification.
+pub fn reuse_payload(verified_mode: Option<u32>) -> (reuse: bool)
+    ensures reuse == (verified_mode is Some && verified_mode->Some_0 & 0o111 != 0),
+{
+    match verified_mode {
+        Some(mode) => mode & 0o111 != 0,
+        None => false,
+    }
+}
+
+/// The adapter supplies filesystem observations and operations. A failed save
+/// leaves the old destination in place. A failed restore leaves its backup in
+/// place. Destinations are protected from cooperating writers by the stage's gate.
+pub trait InstallPublication<D, E> {
+    spec fn placements(&self) -> Seq<(usize, Result<(), E>)>;
+    spec fn reversals(&self) -> Seq<usize>;
+    spec fn recovery_errors(&self) -> Seq<E>;
+
+    fn prepare(&mut self, index: usize) -> (result: Result<(D, bool), E>)
+        ensures self.placements() == old(self).placements(), self.reversals() == old(self).reversals(), self.recovery_errors() == old(self).recovery_errors();
+    fn save(&mut self, index: usize, destination: &D) -> (result: Result<D, E>)
+        ensures self.placements() == old(self).placements(), self.reversals() == old(self).reversals(), self.recovery_errors() == old(self).recovery_errors();
+    fn place(&mut self, index: usize, destination: &D) -> (result: Result<(), E>)
+        ensures self.placements() == old(self).placements().push((index, result)),
+            self.reversals() == old(self).reversals(), self.recovery_errors() == old(self).recovery_errors();
+    fn clear(&mut self, index: usize, destination: &D) -> (result: Result<(), E>)
+        ensures self.placements() == old(self).placements(),
+            self.reversals() == old(self).reversals().push(index),
+            self.recovery_errors() == append_error(old(self).recovery_errors(), result);
+    fn restore(&mut self, index: usize, backup: &D, destination: &D) -> (result: Result<(), E>)
+        ensures self.placements() == old(self).placements(), self.reversals() == old(self).reversals(),
+            self.recovery_errors() == append_error(old(self).recovery_errors(), result);
+}
+
+pub open spec fn append_error<E>(errors: Seq<E>, result: Result<(), E>) -> Seq<E> {
+    match result { Ok(_) => errors, Err(error) => errors.push(error) }
+}
+
+fn reverse_entry<D, E, P: InstallPublication<D, E>>(
+    publication: &mut P, index: usize, destination: &D, backup: &Option<D>,
+) -> (result: Result<(), E>)
+    ensures publication.placements() == old(publication).placements(),
+        publication.reversals() == old(publication).reversals().push(index),
+        publication.recovery_errors() == append_error(old(publication).recovery_errors(), result),
+{
+    publication.clear(index, destination)?;
+    match backup {
+        Some(saved) => publication.restore(index, saved, destination),
+        None => Ok(()),
+    }
+}
+
+pub fn publish_install<D, E, P: InstallPublication<D, E>>(
+    publication: &mut P, count: usize,
+) -> (result: Result<(), (E, Vec<E>)>)
+    requires old(publication).placements().len() == 0, old(publication).reversals().len() == 0,
+        old(publication).recovery_errors() == Seq::<E>::empty(),
+    ensures
+        ({
+            let forward = publication.placements();
+            let reversed = publication.reversals();
+            &&& forward.len() <= count
+            &&& forall|i: int| 0 <= i < forward.len() ==> #[trigger] forward[i].0 == i
+            &&& match result {
+                Ok(()) => forward.len() == count && reversed.len() == 0
+                    && (forall|i: int| 0 <= i < forward.len() ==> (#[trigger] forward[i]).1 == Ok::<(), E>(())),
+                Err((error, recovery)) => recovery@ == publication.recovery_errors()
+                    && reversed.len() == forward.len()
+                    && (forall|i: int| 0 <= i < reversed.len() ==> #[trigger] reversed[i] == reversed.len() - 1 - i)
+                    && (forall|i: int| 0 <= i < forward.len() - 1 ==> (#[trigger] forward[i]).1 == Ok::<(), E>(()))
+                    && (forward.len() == 0 || forward.last().1 == Ok::<(), E>(())
+                        || forward.last().1 == Err::<(), E>(error)),
+            }
+        }),
+{
+    let mut applied: Vec<(D, Option<D>)> = Vec::new();
+    let mut index = 0;
+    let failure;
+    loop
+        invariant_except_break
+            publication.reversals().len() == 0,
+            publication.recovery_errors() == Seq::<E>::empty(),
+            index <= count,
+            applied@.len() == index,
+            publication.placements().len() == index,
+            forall|i: int| 0 <= i < index ==> (#[trigger] publication.placements()[i]) == (i as usize, Ok::<(), E>(())),
+        ensures
+            publication.reversals().len() == 0,
+            publication.recovery_errors() == Seq::<E>::empty(),
+            applied@.len() == publication.placements().len(),
+            applied@.len() <= count,
+            forall|i: int| 0 <= i < publication.placements().len() ==> #[trigger] publication.placements()[i].0 == i,
+            forall|i: int| 0 <= i < publication.placements().len() - 1
+                ==> (#[trigger] publication.placements()[i]).1 == Ok::<(), E>(()),
+            publication.placements().len() == 0 || publication.placements().last().1 == Ok::<(), E>(())
+                || publication.placements().last().1 == Err::<(), E>(failure),
+        decreases count - index,
+    {
+        if index == count { return Ok(()); }
+        let (destination, present) = match publication.prepare(index) {
+            Ok(prepared) => prepared,
+            Err(error) => { failure = error; break; },
+        };
+        let backup = if present {
+            match publication.save(index, &destination) {
+                Ok(saved) => Some(saved),
+                Err(error) => { failure = error; break; },
+            }
+        } else {
+            None
+        };
+        let ghost before = publication.placements();
+        assert(forall|i: int| 0 <= i < index ==> (#[trigger] before[i]) == (i as usize, Ok::<(), E>(())));
+        let placed = publication.place(index, &destination);
+        applied.push((destination, backup));
+        match placed {
+            Err(error) => { failure = error; break; },
+            Ok(_unit) => {
+                assert(placed == Ok::<(), E>(_unit));
+                assert(_unit == ());
+                assert forall|i: int| 0 <= i <= index
+                    implies (#[trigger] publication.placements()[i]) == (i as usize, Ok::<(), E>(())) by {
+                    if i < index {
+                        assert(before[i] == (i as usize, Ok::<(), E>(())));
+                        assert(publication.placements()[i] == before[i]);
+                    } else {
+                        assert(i as usize == index);
+                        assert(publication.placements()[i] == (index, placed));
+                        assert(placed == Ok::<(), E>(()));
+                    }
+                };
+            },
+        }
+        index += 1;
+    }
+
+    let ghost forward = publication.placements();
+    let ghost length = applied@.len();
+    assert(length == forward.len() && length <= count);
+    assert(forall|i: int| 0 <= i < forward.len() ==> #[trigger] forward[i].0 == i);
+    assert(forall|i: int| 0 <= i < forward.len() - 1 ==> (#[trigger] forward[i]).1 == Ok::<(), E>(()));
+    assert(forward.len() == 0 || forward.last().1 == Ok::<(), E>(()) || forward.last().1 == Err::<(), E>(failure));
+    let mut recovery = Vec::new();
+    while !applied.is_empty()
+        invariant
+            applied@.len() <= length,
+            publication.placements() == forward,
+            publication.reversals().len() == length - applied@.len(),
+            recovery@ == publication.recovery_errors(),
+            forall|i: int| 0 <= i < publication.reversals().len()
+                ==> #[trigger] publication.reversals()[i] == length - 1 - i,
+        decreases applied@.len(),
+    {
+        let index = applied.len() - 1;
+        let (destination, backup) = applied.pop().unwrap();
+        if let Err(error) = reverse_entry(publication, index, &destination, &backup) {
+            recovery.push(error);
+        }
+    }
+    Err((failure, recovery))
+}
+
 }
 
 #[cfg(not(verus_keep_ghost))]
-use super::{Result, asset_identity, member_path};
+use super::{Result as NativeResult, asset_identity, member_path};
 #[cfg(not(verus_keep_ghost))]
 use std::{
     fs::{self, File},
@@ -103,7 +289,7 @@ impl Drop for WriterLock {
 
 #[cfg(not(verus_keep_ghost))]
 impl Guard {
-    pub(crate) fn acquire(root: &Path) -> Result<Self> {
+    pub(crate) fn acquire(root: &Path) -> NativeResult<Self> {
         let marker = member_path(root, LOCK)?;
         let area = member_path(root, WORK)?;
         fs::create_dir_all(&area).map_err(|e| e.to_string())?;
@@ -134,7 +320,7 @@ impl Guard {
         Ok(Self { area, gate, marker })
     }
 
-    pub(crate) fn stage(&self) -> Result<Stage> {
+    pub(crate) fn stage(&self) -> NativeResult<Stage> {
         let temp = tempfile::Builder::new()
             .prefix("stage-")
             .rand_bytes(16)
@@ -186,7 +372,7 @@ impl Stage {
         Ok(())
     }
 
-    pub(crate) fn publish(self, root: &Path, entries: &[(PathBuf, String)]) -> Result<()> {
+    pub(crate) fn publish(self, root: &Path, entries: &[(PathBuf, String)]) -> NativeResult<()> {
         let owned = self.path.join(PREPARED);
         let recovery = self.path.join(PUBLISHING);
         fs::rename(&owned, &recovery).map_err(|e| e.to_string())?;
@@ -259,7 +445,7 @@ fn discard(path: &Path, gate: &Path, keep: Duration) -> io::Result<bool> {
 }
 
 #[cfg(not(verus_keep_ghost))]
-pub(crate) fn maintain(root: &Path, seconds: u64) -> Result<usize> {
+pub(crate) fn maintain(root: &Path, seconds: u64) -> NativeResult<usize> {
     if seconds == 0 {
         return Err("retention must be positive".into());
     }

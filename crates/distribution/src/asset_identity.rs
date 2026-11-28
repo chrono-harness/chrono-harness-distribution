@@ -14,7 +14,10 @@ pub mod cli;
 mod staging;
 #[cfg(not(verus_keep_ghost))]
 use crate::staging;
-pub use staging::{removable_stage_member, valid_stage_id};
+pub use staging::{
+    InstallPublication, compare_adoption, publish_install, removable_stage_member, reuse_payload,
+    same_adoption_contents, valid_stage_id,
+};
 
 #[cfg(verus_keep_ghost)]
 #[path = "lib.rs"]
@@ -23,6 +26,9 @@ mod release;
 pub use crate::valid_release_header;
 #[cfg(verus_keep_ghost)]
 pub use release::valid_release_header;
+
+#[cfg(verus_keep_ghost)]
+pub use staging::append_error;
 
 verus! {
 
