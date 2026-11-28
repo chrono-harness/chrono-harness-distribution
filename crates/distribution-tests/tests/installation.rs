@@ -23,7 +23,7 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
     fs,
-    os::unix::fs::{PermissionsExt, symlink},
+    os::unix::fs::{MetadataExt, PermissionsExt, symlink},
     path::{Path, PathBuf},
     process::Command,
 };
@@ -277,7 +277,19 @@ fn install_update_repair_and_idempotence_preserve_unselected_tools() {
         first,
         fs::metadata(f.binary("alpha")).unwrap().modified().unwrap()
     );
-    fs::write(f.binary("alpha"), "corrupt").unwrap();
+    let alpha = f.binary("alpha");
+    let non_executable = fs::Permissions::from_mode(0o644);
+    fs::set_permissions(&alpha, non_executable).unwrap();
+    let old = fs::File::open(&alpha).unwrap();
+    install(f.host.path()).unwrap();
+    let repaired = fs::metadata(&alpha).unwrap();
+    assert_ne!(repaired.ino(), old.metadata().unwrap().ino());
+    assert_eq!(repaired.permissions().mode() & 0o777, 0o755);
+    assert_eq!(
+        fs::read(&alpha).unwrap(),
+        include_bytes!("fixtures/alpha-v1.sh")
+    );
+    fs::write(&alpha, "corrupt").unwrap();
     install(f.host.path()).unwrap();
     f.changed_release();
     install(f.host.path()).unwrap();
@@ -1152,6 +1164,12 @@ fn installer_maintains_only_its_expired_released_stages() {
     };
     let working = stage("stage-0123456789abcdef", ".prepared");
     let recovery = stage("stage-fedcba9876543210", ".publishing");
+    let saved = recovery.join("backup-0");
+    fs::write(&saved, b"previous installed bytes").unwrap();
+    fs::File::open(&recovery)
+        .unwrap()
+        .set_modified(past)
+        .unwrap();
     let unknown = stage("stage-AAAAAAAAAAAAAAAA", "");
     let changed = stage("stage-BBBBBBBBBBBBBBBB", ".prepared");
     fs::write(changed.join("foreign"), b"independently owned").unwrap();
@@ -1172,6 +1190,7 @@ fn installer_maintains_only_its_expired_released_stages() {
     assert_eq!(maintain("1").unwrap()["removed"], 1);
     assert!(!working.exists());
     assert_eq!(copy, b"downloaded bytes");
+    assert_eq!(fs::read(&saved).unwrap(), b"previous installed bytes");
     assert!(recovery.is_dir() && unknown.is_dir() && changed.is_dir());
     let active = fs::File::open(&gate).unwrap();
     active.lock().unwrap();

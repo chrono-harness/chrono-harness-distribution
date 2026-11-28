@@ -43,6 +43,94 @@ fn expect(ok: bool)
     if !ok { panic!(); }
 }
 
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn installation_replacement_and_reuse_boundaries() {
+    use policy::{compare_adoption, reuse_payload, same_adoption_contents};
+    expect(!compare_adoption(false, false));
+    expect(!compare_adoption(true, true));
+    expect(compare_adoption(true, false));
+    let old: &[u8] = &[1, 2];
+    let matching: &[u8] = &[1, 2];
+    let different: &[u8] = &[1, 3];
+    let shorter: &[u8] = &[1];
+    expect(same_adoption_contents(old, matching));
+    expect(!same_adoption_contents(old, different));
+    assert(old@.len() == 2);
+    assert(shorter@.len() == 1);
+    expect(!same_adoption_contents(old, shorter));
+    expect(!reuse_payload(None));
+    assert((0o644u32 & 0o111u32) == 0) by (bit_vector);
+    assert((0o100u32 & 0o111u32) == 0o100u32) by (bit_vector);
+    assert((0o010u32 & 0o111u32) == 0o010u32) by (bit_vector);
+    assert((0o001u32 & 0o111u32) == 0o001u32) by (bit_vector);
+    expect(!reuse_payload(Some(0o644)));
+    expect(reuse_payload(Some(0o100)));
+    expect(reuse_payload(Some(0o010)));
+    expect(reuse_payload(Some(0o001)));
+}
+
+struct RenameFailure {
+    forward: Vec<(usize, Result<(), u8>)>,
+    backward: Vec<usize>,
+    saved: Vec<usize>,
+    errors: Vec<u8>,
+}
+
+impl policy::InstallPublication<usize, u8> for RenameFailure {
+    closed spec fn placements(&self) -> Seq<(usize, Result<(), u8>)> { self.forward@ }
+    closed spec fn reversals(&self) -> Seq<usize> { self.backward@ }
+    closed spec fn recovery_errors(&self) -> Seq<u8> { self.errors@ }
+
+    fn prepare(&mut self, index: usize) -> Result<(usize, bool), u8> {
+        Ok((index, true))
+    }
+
+    fn save(&mut self, _index: usize, destination: &usize) -> Result<usize, u8> {
+        self.saved.push(*destination);
+        Ok(*destination)
+    }
+
+    fn place(&mut self, index: usize, _destination: &usize) -> (result: Result<(), u8>) {
+        let result = if index == 1 { Err(23) } else { Ok(()) };
+        self.forward.push((index, result));
+        result
+    }
+
+    fn clear(&mut self, index: usize, _destination: &usize) -> Result<(), u8> {
+        self.backward.push(index);
+        Ok(())
+    }
+
+    fn restore(&mut self, index: usize, backup: &usize, destination: &usize) -> Result<(), u8> {
+        if index != 1 && *backup == *destination && index == *destination {
+            if !self.saved.is_empty() && self.saved[0] == *backup {
+                self.saved.remove(0);
+                return Ok(());
+            }
+        }
+        self.errors.push(42);
+        Err(42)
+    }
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn install_publication_reverses_after_the_first_failure() {
+    let mut fs = RenameFailure { forward: Vec::new(), backward: Vec::new(), saved: Vec::new(), errors: Vec::new() };
+    let result = policy::publish_install(&mut fs, 3);
+    match result {
+        Ok(_) => expect(fs.forward.len() == 3 && fs.backward.len() == 0),
+        Err((original, recovery)) => {
+            expect(fs.backward.len() == fs.forward.len());
+            if fs.forward.len() == 2 && matches!(fs.forward[1].1, Err(error) if error == 23) {
+                expect(original == 23);
+                expect(fs.backward[0] == 1);
+                expect(fs.backward[1] == 0);
+            }
+            expect(recovery.len() == fs.errors.len());
+        },
+    }
+}
+
 #[cfg(verus_keep_ghost)]
 fn report_observations<R,E,W: cli::ReportOutput<R,E>>(command: Result<R,E>, writer: &mut W) {
     let ghost start = writer.steps().len() as int;
@@ -470,4 +558,20 @@ fn report_preserves_business_write_and_flush_failures() {
         assert_eq!(cli::publish(command, &mut writer), result);
         assert_eq!((writer.reports, writer.flushes), (reports, flushes));
     }
+}
+
+#[cfg(not(verus_keep_ghost))]
+#[test]
+fn failed_install_restore_is_reported_without_skipping_the_older_backup() {
+    let mut fs = RenameFailure {
+        forward: Vec::new(),
+        backward: Vec::new(),
+        saved: Vec::new(),
+        errors: Vec::new(),
+    };
+    let result = policy::publish_install(&mut fs, 3);
+    assert_eq!(fs.forward, [(0, Ok(())), (1, Err(23))]);
+    assert_eq!(fs.backward, [1, 0]);
+    assert_eq!(fs.saved, [1]);
+    assert_eq!(result, Err((23, vec![42])));
 }

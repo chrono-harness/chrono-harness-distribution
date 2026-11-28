@@ -536,46 +536,59 @@ mod native {
         }
     }
 
+    struct InstallPublication<'a> {
+        root: &'a Path,
+        stage: &'a Path,
+        entries: &'a [(PathBuf, String)],
+    }
+
+    impl staging::InstallPublication<PathBuf, String> for InstallPublication<'_> {
+        fn prepare(&mut self, index: usize) -> Result<(PathBuf, bool)> {
+            let relative = &self.entries[index].1;
+            let to = member_path(self.root, relative)?;
+            if to.exists() && !to.is_file() {
+                return Err(format!("destination is not a file: {relative}"));
+            }
+            fs::create_dir_all(to.parent().unwrap()).map_err(|e| e.to_string())?;
+            let present = to.exists();
+            Ok((to, present))
+        }
+
+        fn save(&mut self, index: usize, to: &PathBuf) -> Result<PathBuf> {
+            let saved = self.stage.join(format!("backup-{index}"));
+            fs::rename(to, &saved).map_err(|e| e.to_string())?;
+            Ok(saved)
+        }
+
+        fn place(&mut self, index: usize, to: &PathBuf) -> Result<()> {
+            fs::rename(&self.entries[index].0, to).map_err(|e| e.to_string())
+        }
+
+        fn clear(&mut self, _: usize, to: &PathBuf) -> Result<()> {
+            if to.exists() {
+                fs::remove_file(to).map_err(|e| format!("{}: {e}", to.display()))?;
+            }
+            Ok(())
+        }
+
+        fn restore(&mut self, _: usize, saved: &PathBuf, to: &PathBuf) -> Result<()> {
+            fs::rename(saved, to)
+                .map_err(|e| format!("{} -> {}: {e}", saved.display(), to.display()))
+        }
+    }
+
     /// Roll back ordinary rename failures, retaining backups if recovery itself fails.
     /// This does not promise crash atomicity or cooperation from unrelated writers.
     pub(super) fn publish(root: &Path, stage: &Path, entries: &[(PathBuf, String)]) -> Result<()> {
-        let mut applied: Vec<(PathBuf, Option<PathBuf>)> = Vec::new();
-        for (i, (from, relative)) in entries.iter().enumerate() {
-            let action = (|| {
-                let to = member_path(root, relative)?;
-                if to.exists() && !to.is_file() {
-                    return Err(format!("destination is not a file: {relative}"));
-                }
-                fs::create_dir_all(to.parent().unwrap()).map_err(|e| e.to_string())?;
-                let backup = if to.exists() {
-                    let saved = stage.join(format!("backup-{i}"));
-                    fs::rename(&to, &saved).map_err(|e| e.to_string())?;
-                    Some(saved)
-                } else {
-                    None
-                };
-                applied.push((to.clone(), backup));
-                fs::rename(from, to).map_err(|e| e.to_string())
-            })();
-            if let Err(error) = action {
-                let mut recovery = Vec::new();
-                for (to, backup) in applied.into_iter().rev() {
-                    if to.exists() {
-                        if let Err(e) = fs::remove_file(&to) {
-                            recovery.push(format!("{}: {e}", to.display()));
-                            continue;
-                        }
-                    }
-                    if let Some(saved) = backup {
-                        if let Err(e) = fs::rename(&saved, &to) {
-                            recovery.push(format!("{} -> {}: {e}", saved.display(), to.display()));
-                        }
-                    }
-                }
-                return Err(format!("{error}; rollback errors: {recovery:?}"));
-            }
-        }
-        Ok(())
+        staging::publish_install(
+            &mut InstallPublication {
+                root,
+                stage,
+                entries,
+            },
+            entries.len(),
+        )
+        .map_err(|(error, recovery)| format!("{error}; rollback errors: {recovery:?}"))
     }
     struct SelectedTools<'a> {
         available: &'a BTreeMap<String, Asset>,
@@ -756,10 +769,11 @@ mod native {
         ];
         for (from, dst) in &entries {
             let path = member_path(root, dst)?;
-            if path.exists()
-                && !replace
-                && fs::read(path).map_err(|e| e.to_string())?
-                    != fs::read(from).map_err(|e| e.to_string())?
+            if staging::compare_adoption(path.exists(), replace)
+                && !staging::same_adoption_contents(
+                    &fs::read(path).map_err(|e| e.to_string())?,
+                    &fs::read(from).map_err(|e| e.to_string())?,
+                )
             {
                 return Err(format!(
                     "existing adoption differs: {dst}; use --replace for an explicit update"
@@ -813,15 +827,17 @@ mod native {
                 return Err(format!("destination is not a file: {dst}"));
             }
             // Existing bytes are a cache only after verification; executable mode is part of usable installation.
-            let reusable = to.is_file()
-                && verify(&to, a).is_ok()
-                && fs::metadata(&to)
-                    .map_err(|e| e.to_string())?
-                    .permissions()
-                    .mode()
-                    & 0o111
-                    != 0;
-            if !reusable {
+            let verified_mode = if to.is_file() && verify(&to, a).is_ok() {
+                Some(
+                    fs::metadata(&to)
+                        .map_err(|e| e.to_string())?
+                        .permissions()
+                        .mode(),
+                )
+            } else {
+                None
+            };
+            if !staging::reuse_payload(verified_mode) {
                 let from = stage.path().join(format!("payload-{}", entries.len()));
                 fetch(&l.source, a, &from, &stage)?;
                 fs::set_permissions(&from, fs::Permissions::from_mode(0o755))
